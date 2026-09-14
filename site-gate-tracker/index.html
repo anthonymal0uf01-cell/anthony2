@@ -4,22 +4,19 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
 <meta name="theme-color" content="#080b10" />
-<title>Site Gate Tracker</title>
+<title>Site Gate Tracker v2</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 <style>
 :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:#080b10;color:#fff;overscroll-behavior:none}
-#app{max-width:980px;margin:auto;padding:env(safe-area-inset-top) 10px env(safe-area-inset-bottom)}
-header{display:flex;align-items:center;justify-content:space-between;padding:10px 4px;gap:8px}
-h1{font-size:18px;margin:0}.status{font-size:12px;opacity:.8;text-align:right}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}.card{background:#131923;border:1px solid #253041;border-radius:12px;padding:10px;text-align:center}.num{font-size:29px;font-weight:800;line-height:1}.lab{font-size:11px;opacity:.7;margin-top:5px;letter-spacing:.08em}
-.stage{position:relative;width:100%;background:#000;border-radius:14px;overflow:hidden;border:1px solid #253041;touch-action:none}
-video,canvas{display:block;width:100%;height:auto}canvas{position:absolute;inset:0;z-index:2}.hint{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;background:#000b;padding:8px 10px;border-radius:9px;font-size:12px;pointer-events:none}
-.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}button{appearance:none;border:1px solid #35445c;background:#17202d;color:#fff;border-radius:11px;padding:12px;font-size:14px;font-weight:700}button.primary{background:#e8eef8;color:#0b0e13;border-color:#e8eef8}button.warn{border-color:#7a3f3f}.wide{grid-column:1/-1}
-.log{margin-top:8px;background:#10151e;border:1px solid #253041;border-radius:12px;overflow:hidden}.loghead{display:flex;justify-content:space-between;padding:9px 11px;font-size:12px;opacity:.75;border-bottom:1px solid #253041}.event{display:grid;grid-template-columns:70px 1fr 48px 50px;gap:6px;padding:8px 10px;border-bottom:1px solid #1d2735;font-size:12px}.event:last-child{border-bottom:0}.empty{padding:14px;text-align:center;opacity:.55;font-size:12px}
-.small{font-size:11px;opacity:.7;margin:8px 3px 0;line-height:1.35}
-@media (orientation:landscape){#app{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 330px;grid-template-areas:"stage side";gap:10px;padding:6px}.stage{grid-area:stage;align-self:start}#side{grid-area:side;max-height:calc(100vh - 12px);overflow:auto}header{padding-top:2px}.stats .num{font-size:25px}}
+#app{max-width:980px;margin:auto;padding:env(safe-area-inset-top) 9px env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;justify-content:space-between;padding:8px 3px;gap:8px}h1{font-size:18px;margin:0}.status{font-size:11px;opacity:.8;text-align:right}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:7px}.card{background:#131923;border:1px solid #253041;border-radius:11px;padding:9px 4px;text-align:center}.num{font-size:27px;font-weight:850;line-height:1}.lab{font-size:9px;opacity:.72;margin-top:5px;letter-spacing:.07em}
+.stage{position:relative;width:100%;background:#000;border-radius:13px;overflow:hidden;border:1px solid #253041;touch-action:none}video,canvas{display:block;width:100%;height:auto}canvas{position:absolute;inset:0;z-index:2}.hint{position:absolute;left:7px;right:7px;bottom:7px;z-index:3;background:#000c;padding:8px 9px;border-radius:8px;font-size:11px;pointer-events:none}
+.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:7px}button,select{appearance:none;border:1px solid #35445c;background:#17202d;color:#fff;border-radius:10px;padding:11px 9px;font-size:13px;font-weight:750}button.primary{background:#e8eef8;color:#0b0e13;border-color:#e8eef8}button.good{border-color:#2d7758;background:#123226}button.out{border-color:#82503b;background:#382116}button.warn{border-color:#7a3f3f}.wide{grid-column:1/-1}.manualrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:7px}.manualrow select{min-width:0}
+.log{margin-top:7px;background:#10151e;border:1px solid #253041;border-radius:11px;overflow:hidden}.loghead{display:flex;justify-content:space-between;padding:8px 10px;font-size:11px;opacity:.75;border-bottom:1px solid #253041}.event{display:grid;grid-template-columns:64px minmax(0,1fr) 42px 44px;gap:5px;padding:7px 9px;border-bottom:1px solid #1d2735;font-size:11px;align-items:center}.event:last-child{border-bottom:0}.event .type{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.event.ai b{color:#bfefff}.event.manual b{color:#ffe3a8}.empty{padding:13px;text-align:center;opacity:.55;font-size:11px}.small{font-size:10px;opacity:.65;margin:7px 3px 0;line-height:1.3}
+@media (orientation:landscape){#app{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 360px;grid-template-areas:"stage side";gap:9px;padding:5px}.stage{grid-area:stage;align-self:start}#side{grid-area:side;max-height:calc(100vh - 10px);overflow:auto}header{padding-top:1px}.stats .num{font-size:23px}.controls button,.manualrow button,.manualrow select{padding:9px 7px;font-size:12px}}
 </style>
 </head>
 <body>
@@ -27,24 +24,34 @@ video,canvas{display:block;width:100%;height:auto}canvas{position:absolute;inset
   <div class="stage" id="stage">
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
-    <div class="hint" id="hint">Tap START CAMERA. Then SET GATE LINE and tap two points across the road.</div>
+    <div class="hint" id="hint">Start camera, then set the gate line. v2 adds stable crossing + truck/dog duplicate guard.</div>
   </div>
   <div id="side">
-    <header><h1>Site Gate Tracker</h1><div class="status" id="status">Model not loaded</div></header>
+    <header><h1>Site Gate Tracker <small style="opacity:.55">v2</small></h1><div class="status" id="status">Model not loaded</div></header>
     <div class="stats">
       <div class="card"><div class="num" id="inside">0</div><div class="lab">INSIDE</div></div>
       <div class="card"><div class="num" id="inTotal">0</div><div class="lab">IN</div></div>
       <div class="card"><div class="num" id="outTotal">0</div><div class="lab">OUT</div></div>
+      <div class="card"><div class="num" id="waiting">0</div><div class="lab">WAITING</div></div>
     </div>
     <div class="controls">
       <button class="primary wide" id="start">START CAMERA</button>
-      <button id="gate">SET GATE LINE</button><button id="reverse">DIRECTION: NORMAL</button>
+      <button id="gate">SET GATE LINE</button><button id="bay">SET WAITING BAY</button>
+      <button id="reverse">DIRECTION: NORMAL</button><button id="guard">DOG GUARD: ON</button>
+      <button id="sensitivity">SENSITIVITY: NORMAL</button><button id="mode">TRACK: ALL</button>
       <button id="minus">INSIDE −1</button><button id="plus">INSIDE +1</button>
       <button id="setInside">SET INSIDE TOTAL</button><button id="undo">UNDO LAST EVENT</button>
-      <button id="export">EXPORT CSV</button><button class="warn" id="reset">RESET ALL</button>
+    </div>
+    <div class="manualrow">
+      <select id="manualType" aria-label="Manual vehicle type"><option>Truck & Dog</option><option>Water Cart</option><option>Light Vehicle</option><option>Plant</option><option>Other</option></select>
+      <button class="good" id="manualIn">MANUAL IN</button>
+      <button class="out" id="manualOut">MANUAL OUT</button>
+    </div>
+    <div class="controls">
+      <button id="export">EXPORT CSV</button><button class="warn" id="resetShift">RESET SHIFT</button>
     </div>
     <div class="log"><div class="loghead"><span>RECENT MOVEMENTS</span><span id="fps"></span></div><div id="events"></div></div>
-    <div class="small">Runs on this iPhone. Video is processed in the browser and is not uploaded by this page. Keep Safari open and the screen awake while tracking. This is an operations tally aid, not a safety-critical traffic-control device.</div>
+    <div class="small">All vision runs on this iPhone. The camera feed is not uploaded by this page. Keep Safari visible and the screen awake. Use as an operations tally aid, not as a safety-critical traffic-control device.</div>
   </div>
 </div>
 <script>
@@ -54,84 +61,167 @@ const VEHICLES = new Set(['car','truck','bus','motorcycle']);
 const LABEL = {car:'Light Vehicle',truck:'Truck / Truck & Dog',bus:'Bus',motorcycle:'Motorcycle'};
 const $ = id => document.getElementById(id);
 const video=$('video'), canvas=$('overlay'), ctx=canvas.getContext('2d');
-const stage=$('stage'), hint=$('hint'), statusEl=$('status'), fpsEl=$('fps');
-let model=null, stream=null, running=false, detecting=false, calibrating=false, gatePoints=[];
-let tracks=new Map(), nextId=1, reverse=false, wakeLock=null, lastDetect=0, frameCount=0, fpsStart=performance.now();
+const hint=$('hint'), statusEl=$('status'), fpsEl=$('fps');
+let model=null, stream=null, running=false, detecting=false, calibrationMode=null, calibrationPoints=[];
+let tracks=new Map(), nextId=1, reverse=false, wakeLock=null, lastDetect=0, frameCount=0, fpsStart=performance.now(), inferenceEMA=0;
+let visibleWaiting=new Set();
 let state=loadState();
-function loadState(){
-  try{return Object.assign({inside:0,inTotal:0,outTotal:0,events:[],line:null,reverse:false},JSON.parse(localStorage.getItem('siteGateTracker')||'{}'))}catch(e){return {inside:0,inTotal:0,outTotal:0,events:[],line:null,reverse:false}}
-}
+
+function defaults(){return {version:2,inside:0,inTotal:0,outTotal:0,events:[],line:null,waitingBay:null,reverse:false,dogGuard:true,sensitivity:'NORMAL',trackMode:'ALL'};}
+function loadState(){try{return Object.assign(defaults(),JSON.parse(localStorage.getItem('siteGateTracker')||'{}'))}catch(e){return defaults()}}
 reverse=!!state.reverse;
-function save(){state.reverse=reverse;localStorage.setItem('siteGateTracker',JSON.stringify(state));renderStats();renderEvents()}
-function renderStats(){$('inside').textContent=state.inside;$('inTotal').textContent=state.inTotal;$('outTotal').textContent=state.outTotal;$('reverse').textContent='DIRECTION: '+(reverse?'REVERSED':'NORMAL')}
-function renderEvents(){const box=$('events');box.innerHTML='';if(!state.events.length){box.innerHTML='<div class="empty">No movements counted yet</div>';return}state.events.slice(0,12).forEach(e=>{const d=document.createElement('div');d.className='event';d.innerHTML=`<span>${esc(e.time)}</span><span>${esc(e.type)}</span><b>${esc(e.dir)}</b><span>#${e.inside}</span>`;box.appendChild(d)})}
+function save(){state.version=2;state.reverse=reverse;localStorage.setItem('siteGateTracker',JSON.stringify(state));renderStats();renderEvents();renderControls()}
+function renderStats(){$('inside').textContent=state.inside;$('inTotal').textContent=state.inTotal;$('outTotal').textContent=state.outTotal;$('waiting').textContent=visibleWaiting.size}
+function renderControls(){$('reverse').textContent='DIRECTION: '+(reverse?'REVERSED':'NORMAL');$('guard').textContent='DOG GUARD: '+(state.dogGuard?'ON':'OFF');$('sensitivity').textContent='SENSITIVITY: '+state.sensitivity;$('mode').textContent='TRACK: '+state.trackMode}
+function renderEvents(){const box=$('events');box.innerHTML='';if(!state.events.length){box.innerHTML='<div class="empty">No movements counted yet</div>';return}state.events.slice(0,14).forEach(e=>{const d=document.createElement('div');d.className='event '+(e.source==='MANUAL'?'manual':'ai');d.innerHTML=`<span>${esc(e.time)}</span><span class="type">${esc(e.type)}</span><b>${esc(e.dir)}</b><span>#${e.inside}</span>`;box.appendChild(d)})}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-renderStats();renderEvents();
+renderStats();renderEvents();renderControls();
+
 async function keepAwake(){try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen')}}catch(e){}}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running)keepAwake()});
+
 async function start(){
   if(running)return;
   $('start').disabled=true;statusEl.textContent='Requesting camera…';
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:960},height:{ideal:540},frameRate:{ideal:30,max:30}},audio:false});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}},audio:false});
     video.srcObject=stream;await video.play();
     await new Promise(r=>{if(video.readyState>=2)r();else video.onloadedmetadata=r});
     resizeCanvas();running=true;keepAwake();
     statusEl.textContent='Loading detector…';hint.textContent='Camera live. Loading vehicle detector…';
-    await tf.setBackend('webgl');await tf.ready();
+    try{await tf.setBackend('webgl')}catch(e){} await tf.ready();
     model=await cocoSsd.load({base:'lite_mobilenet_v2'});
-    statusEl.textContent='Tracking';hint.textContent=state.line?'Tracking. If IN/OUT is backwards, tap DIRECTION.':'Tap SET GATE LINE, then tap two points across the road.';
-    $('start').textContent='CAMERA RUNNING';loop();
-  }catch(e){console.error(e);statusEl.textContent='Camera/model error';hint.textContent='Could not start camera. Open this page in Safari over HTTPS, allow Camera access, then retry.';$('start').disabled=false}
+    statusEl.textContent='Tracking';hint.textContent=state.line?'Tracking. Keep the gate line where vehicles are large and separated.':'Tap SET GATE LINE, then tap two points across the road.';
+    $('start').textContent='CAMERA RUNNING';
+    loop();
+  }catch(e){console.error(e);statusEl.textContent='Camera/model error';hint.textContent='Could not start. Open in Safari over HTTPS and allow Camera access.';$('start').disabled=false}
 }
 function resizeCanvas(){if(!video.videoWidth)return;canvas.width=video.videoWidth;canvas.height=video.videoHeight}
 window.addEventListener('resize',resizeCanvas);video.addEventListener('loadedmetadata',resizeCanvas);
 function linePx(){if(!state.line)return null;return state.line.map(p=>[p[0]*canvas.width,p[1]*canvas.height])}
-function signedDist(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1];const len=Math.hypot(dx,dy)||1;return (dx*(p[1]-a[1])-dy*(p[0]-a[0]))/len}
+function bayPx(){if(!state.waitingBay)return null;const [x1,y1,x2,y2]=state.waitingBay;return [x1*canvas.width,y1*canvas.height,x2*canvas.width,y2*canvas.height]}
+function signedDist(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1;return (dx*(p[1]-a[1])-dy*(p[0]-a[0]))/len}
 function projectionT(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],den=dx*dx+dy*dy||1;return ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/den}
 function iou(a,b){const ax2=a[0]+a[2],ay2=a[1]+a[3],bx2=b[0]+b[2],by2=b[1]+b[3],x1=Math.max(a[0],b[0]),y1=Math.max(a[1],b[1]),x2=Math.min(ax2,bx2),y2=Math.min(ay2,by2);const inter=Math.max(0,x2-x1)*Math.max(0,y2-y1);const union=a[2]*a[3]+b[2]*b[3]-inter;return union?inter/union:0}
+function isHeavy(label){return label==='truck'||label==='bus'}
+function threshold(){return state.sensitivity==='HIGH'?0.28:state.sensitivity==='STRICT'?0.46:0.35}
+
 function matchDetections(dets,now){
-  const active=[...tracks.values()].filter(t=>now-t.lastSeen<2800), used=new Set();
+  const active=[...tracks.values()].filter(t=>now-t.lastSeen<2600),used=new Set();
+  dets.sort((a,b)=>(b.bbox[2]*b.bbox[3])-(a.bbox[2]*a.bbox[3]));
   for(const d of dets){
     const [x,y,w,h]=d.bbox,cx=x+w/2,cy=y+h/2;let best=null,bestCost=1e9;
-    for(const t of active){if(used.has(t.id))continue;const dt=Math.min((now-t.lastSeen)/350,4),px=t.cx+t.vx*dt,py=t.cy+t.vy*dt,dist=Math.hypot(cx-px,cy-py),maxDist=Math.max(95,Math.hypot(w,h)*0.9);if(dist>maxDist)continue;const ov=iou(d.bbox,t.bbox),cost=dist/maxDist+(1-ov)*0.55;if(cost<bestCost){bestCost=cost;best=t}}
-    if(best){used.add(best.id);const ox=best.cx,oy=best.cy;best.vx=0.65*best.vx+0.35*(cx-ox);best.vy=0.65*best.vy+0.35*(cy-oy);best.cx=cx;best.cy=cy;best.bbox=d.bbox;best.score=d.score;best.lastSeen=now;best.votes[d.class]=(best.votes[d.class]||0)+1;best.label=Object.entries(best.votes).sort((a,b)=>b[1]-a[1])[0][0];d.track=best}else{const t={id:nextId++,cx,cy,vx:0,vy:0,bbox:d.bbox,score:d.score,lastSeen:now,stableSide:null,lastEvent:0,votes:{[d.class]:1},label:d.class};tracks.set(t.id,t);used.add(t.id);d.track=t}
+    for(const t of active){
+      if(used.has(t.id))continue;
+      const dt=Math.min((now-t.lastSeen)/250,5),px=t.cx+t.vx*dt,py=t.cy+t.vy*dt;
+      const dist=Math.hypot(cx-px,cy-py),diag=Math.hypot(w,h),maxDist=Math.max(80,diag*0.75);
+      if(dist>maxDist)continue;
+      const ov=iou(d.bbox,t.bbox),classPenalty=(isHeavy(d.class)!==isHeavy(t.label))?0.35:0;
+      const cost=dist/maxDist+(1-ov)*0.48+classPenalty;
+      if(cost<bestCost){bestCost=cost;best=t}
+    }
+    if(best){
+      used.add(best.id);const ox=best.cx,oy=best.cy;
+      best.vx=0.72*best.vx+0.28*(cx-ox);best.vy=0.72*best.vy+0.28*(cy-oy);
+      best.cx=cx;best.cy=cy;best.bbox=d.bbox;best.score=d.score;best.lastSeen=now;best.hits++;
+      best.votes[d.class]=(best.votes[d.class]||0)+Math.max(.2,d.score);
+      best.label=Object.entries(best.votes).sort((a,b)=>b[1]-a[1])[0][0];d.track=best;
+    }else{
+      const t={id:nextId++,cx,cy,vx:0,vy:0,bbox:d.bbox,score:d.score,lastSeen:now,hits:1,stableSide:null,candidateSide:null,candidateCount:0,lastEvent:0,votes:{[d.class]:Math.max(.2,d.score)},label:d.class};
+      tracks.set(t.id,t);used.add(t.id);d.track=t;
+    }
   }
-  for(const [id,t] of tracks){if(now-t.lastSeen>4500)tracks.delete(id)}
+  for(const [id,t] of tracks){if(now-t.lastSeen>4200)tracks.delete(id)}
   return dets;
 }
+
 function checkCrossing(t,now){
-  const ln=linePx();if(!ln)return;const [a,b]=ln,p=[t.cx,t.cy],dist=signedDist(p,a,b),margin=Math.max(9,canvas.height*0.012);let side=0;if(dist>margin)side=1;else if(dist<-margin)side=-1;if(!side)return;
-  if(t.stableSide===null){t.stableSide=side;return}
-  if(side===t.stableSide)return;
-  const proj=projectionT(p,a,b);if(proj<-.15||proj>1.15){t.stableSide=side;return}
-  if(now-t.lastEvent<1400){t.stableSide=side;return}
-  const old=t.stableSide;t.stableSide=side;t.lastEvent=now;let dir=(old===-1&&side===1)?'IN':'OUT';if(reverse)dir=dir==='IN'?'OUT':'IN';recordEvent(t,dir,now)
+  const ln=linePx();if(!ln||t.hits<3)return;
+  const [a,b]=ln,p=[t.cx,t.cy],dist=signedDist(p,a,b),margin=Math.max(10,canvas.height*0.014);let side=0;
+  if(dist>margin)side=1;else if(dist<-margin)side=-1;else return;
+  if(t.stableSide===null){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}
+  if(side===t.stableSide){t.candidateSide=null;t.candidateCount=0;return}
+  if(t.candidateSide===side)t.candidateCount++;else{t.candidateSide=side;t.candidateCount=1}
+  if(t.candidateCount<2)return;
+  const proj=projectionT(p,a,b);
+  if(proj<-.10||proj>1.10){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}
+  if(now-t.lastEvent<1300){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}
+  const old=t.stableSide;t.stableSide=side;t.candidateSide=null;t.candidateCount=0;t.lastEvent=now;
+  let dir=(old===-1&&side===1)?'IN':'OUT';if(reverse)dir=dir==='IN'?'OUT':'IN';
+  recordAIEvent(t,dir,now);
 }
-function recordEvent(t,dir,now){
-  if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}
-  const ev={time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type:LABEL[t.label]||t.label,dir,inside:state.inside,track:t.id,confidence:Number(t.score||0).toFixed(2)};state.events.unshift(ev);state.events=state.events.slice(0,500);save();navigator.vibrate?.(60)
+
+function duplicateDogGuard(t,dir,now){
+  if(!state.dogGuard||!isHeavy(t.label))return false;
+  const xNorm=t.cx/Math.max(1,canvas.width);
+  const recent=state.events.find(e=>e.source==='AI'&&e.dir===dir&&e.heavy&&now-e.perf<950);
+  if(!recent)return false;
+  return Math.abs((recent.xNorm??2)-xNorm)<0.14;
 }
+function recordAIEvent(t,dir,now){
+  if(duplicateDogGuard(t,dir,now)){hint.textContent='Dog guard suppressed a likely trailer/duplicate crossing.';return;}
+  recordEvent({type:LABEL[t.label]||t.label,dir,track:t.id,confidence:Number(t.score||0).toFixed(2),source:'AI',heavy:isHeavy(t.label),xNorm:t.cx/Math.max(1,canvas.width),perf:now});
+}
+function recordEvent(meta){
+  if(meta.dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}
+  const n=new Date();
+  const ev={time:n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:n.toISOString(),type:meta.type,dir:meta.dir,inside:state.inside,track:meta.track??'',confidence:meta.confidence??'',source:meta.source||'AI',heavy:!!meta.heavy,xNorm:meta.xNorm??'',perf:meta.perf??performance.now()};
+  state.events.unshift(ev);state.events=state.events.slice(0,1000);save();
+  try{navigator.vibrate?.(meta.dir==='IN'?[70]:[40,40,40])}catch(e){}
+}
+function manualEvent(dir){recordEvent({type:$('manualType').value,dir,source:'MANUAL',heavy:$('manualType').value==='Truck & Dog',perf:performance.now()});hint.textContent=`Manual ${dir} recorded.`}
+
+function updateWaiting(dets){
+  visibleWaiting=new Set();const r=bayPx();if(!r){renderStats();return}const [x1,y1,x2,y2]=[Math.min(r[0],r[2]),Math.min(r[1],r[3]),Math.max(r[0],r[2]),Math.max(r[1],r[3])];
+  for(const d of dets){const t=d.track;if(t.cx>=x1&&t.cx<=x2&&t.cy>=y1&&t.cy<=y2)visibleWaiting.add(t.id)}renderStats();
+}
+
 async function detect(now){
-  if(!model||detecting||video.readyState<2)return;detecting=true;
-  try{const preds=await model.detect(video,20,0.36);const dets=preds.filter(p=>VEHICLES.has(p.class));matchDetections(dets,now);for(const d of dets)checkCrossing(d.track,now);draw(dets);frameCount++;if(now-fpsStart>3000){fpsEl.textContent=(frameCount*1000/(now-fpsStart)).toFixed(1)+' detections/s';frameCount=0;fpsStart=now}}
-  catch(e){console.error(e);statusEl.textContent='Detection error'}finally{detecting=false}
+  if(!model||detecting||video.readyState<2)return;detecting=true;const t0=performance.now();
+  try{
+    const preds=await model.detect(video,30,threshold());
+    let dets=preds.filter(p=>VEHICLES.has(p.class));
+    if(state.trackMode==='HEAVY')dets=dets.filter(p=>isHeavy(p.class));
+    matchDetections(dets,now);for(const d of dets)checkCrossing(d.track,now);updateWaiting(dets);draw(dets);
+    const ms=performance.now()-t0;inferenceEMA=inferenceEMA?inferenceEMA*.8+ms*.2:ms;
+    frameCount++;if(now-fpsStart>2500){const rate=frameCount*1000/(now-fpsStart);fpsEl.textContent=`${rate.toFixed(1)}/s · ${Math.round(inferenceEMA)}ms`;frameCount=0;fpsStart=now;statusEl.textContent=`Tracking · ${tracks.size} tracks`}
+  }catch(e){console.error(e);statusEl.textContent='Detection error'}finally{detecting=false}
 }
+
 function draw(dets=[]){
-  ctx.clearRect(0,0,canvas.width,canvas.height);const ln=linePx();if(ln){ctx.strokeStyle='#fff';ctx.lineWidth=Math.max(3,canvas.width/240);ctx.beginPath();ctx.moveTo(...ln[0]);ctx.lineTo(...ln[1]);ctx.stroke();ctx.fillStyle='#fff';ctx.font=`${Math.max(15,canvas.width/42)}px -apple-system`;ctx.fillText(reverse?'OUT → IN orientation reversed':'Gate counting line',ln[0][0]+8,Math.max(22,ln[0][1]-9))}
-  if(calibrating&&gatePoints.length){ctx.fillStyle='#ffdf66';for(const p of gatePoints){ctx.beginPath();ctx.arc(p[0],p[1],9,0,Math.PI*2);ctx.fill()}if(gatePoints.length===2){ctx.strokeStyle='#ffdf66';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(...gatePoints[0]);ctx.lineTo(...gatePoints[1]);ctx.stroke()}}
-  for(const d of dets){const t=d.track,[x,y,w,h]=d.bbox;ctx.strokeStyle='#55e6ff';ctx.lineWidth=Math.max(2,canvas.width/320);ctx.strokeRect(x,y,w,h);ctx.fillStyle='#000c';ctx.fillRect(x,Math.max(0,y-25),Math.min(w,220),25);ctx.fillStyle='#fff';ctx.font=`${Math.max(13,canvas.width/48)}px -apple-system`;ctx.fillText(`#${t.id} ${LABEL[t.label]||t.label}`,x+4,Math.max(17,y-6))}
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const ln=linePx();if(ln){ctx.strokeStyle='#fff';ctx.lineWidth=Math.max(3,canvas.width/240);ctx.beginPath();ctx.moveTo(...ln[0]);ctx.lineTo(...ln[1]);ctx.stroke();ctx.fillStyle='#fff';ctx.font=`${Math.max(14,canvas.width/48)}px -apple-system`;ctx.fillText(reverse?'GATE LINE · REVERSED':'GATE LINE',ln[0][0]+8,Math.max(21,ln[0][1]-8))}
+  const br=bayPx();if(br){const x=Math.min(br[0],br[2]),y=Math.min(br[1],br[3]),w=Math.abs(br[2]-br[0]),h=Math.abs(br[3]-br[1]);ctx.setLineDash([10,8]);ctx.strokeStyle='#ffda67';ctx.lineWidth=3;ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);ctx.fillStyle='#ffda67';ctx.font=`${Math.max(13,canvas.width/52)}px -apple-system`;ctx.fillText(`WAITING BAY ${visibleWaiting.size}`,x+6,Math.max(18,y+20))}
+  if(calibrationMode&&calibrationPoints.length){ctx.fillStyle='#ffdf66';for(const p of calibrationPoints){ctx.beginPath();ctx.arc(p[0],p[1],9,0,Math.PI*2);ctx.fill()}if(calibrationPoints.length===2){ctx.strokeStyle='#ffdf66';ctx.lineWidth=4;if(calibrationMode==='gate'){ctx.beginPath();ctx.moveTo(...calibrationPoints[0]);ctx.lineTo(...calibrationPoints[1]);ctx.stroke()}else{const a=calibrationPoints[0],b=calibrationPoints[1];ctx.strokeRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]))}}}
+  for(const d of dets){const t=d.track,[x,y,w,h]=d.bbox;ctx.strokeStyle=isHeavy(t.label)?'#55e6ff':'#94f0ad';ctx.lineWidth=Math.max(2,canvas.width/360);ctx.strokeRect(x,y,w,h);ctx.fillStyle='#000c';ctx.fillRect(x,Math.max(0,y-23),Math.min(w,230),23);ctx.fillStyle='#fff';ctx.font=`${Math.max(12,canvas.width/56)}px -apple-system`;ctx.fillText(`#${t.id} ${LABEL[t.label]||t.label} ${(t.score*100).toFixed(0)}%`,x+4,Math.max(16,y-6))}
 }
-function loop(now=performance.now()){if(!running)return;if(now-lastDetect>330){lastDetect=now;detect(now)}requestAnimationFrame(loop)}
-canvas.addEventListener('pointerdown',e=>{if(!calibrating)return;const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height;gatePoints.push([x,y]);draw([]);if(gatePoints.length===2){state.line=gatePoints.map(p=>[p[0]/canvas.width,p[1]/canvas.height]);calibrating=false;$('gate').textContent='SET GATE LINE';hint.textContent='Gate saved. Tracking crossings now.';tracks.clear();save()}});
+
+function loop(now=performance.now()){if(!running)return;const minGap=Math.max(150,Math.min(360,inferenceEMA?inferenceEMA*.9:190));if(now-lastDetect>minGap){lastDetect=now;detect(now)}requestAnimationFrame(loop)}
+
+canvas.addEventListener('pointerdown',e=>{
+  if(!calibrationMode)return;
+  const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height;
+  calibrationPoints.push([x,y]);draw([]);
+  if(calibrationPoints.length===2){
+    if(calibrationMode==='gate')state.line=calibrationPoints.map(p=>[p[0]/canvas.width,p[1]/canvas.height]);
+    else state.waitingBay=[calibrationPoints[0][0]/canvas.width,calibrationPoints[0][1]/canvas.height,calibrationPoints[1][0]/canvas.width,calibrationPoints[1][1]/canvas.height];
+    const what=calibrationMode==='gate'?'Gate line':'Waiting bay';calibrationMode=null;calibrationPoints=[];$('gate').textContent='SET GATE LINE';$('bay').textContent='SET WAITING BAY';tracks.clear();save();hint.textContent=`${what} saved.`;
+  }
+});
+
 $('start').onclick=start;
-$('gate').onclick=()=>{if(!running){hint.textContent='Start the camera first.';return}calibrating=true;gatePoints=[];$('gate').textContent='TAP 2 POINTS…';hint.textContent='Tap TWO points across the road where every vehicle must cross.'};
-$('reverse').onclick=()=>{reverse=!reverse;tracks.clear();save();hint.textContent='Direction changed. New tracks will use this orientation.'};
+$('gate').onclick=()=>{if(!running){hint.textContent='Start the camera first.';return}calibrationMode='gate';calibrationPoints=[];$('gate').textContent='TAP 2 POINTS…';hint.textContent='Tap TWO points across the road where every vehicle must cross.'};
+$('bay').onclick=()=>{if(!running){hint.textContent='Start the camera first.';return}calibrationMode='bay';calibrationPoints=[];$('bay').textContent='TAP 2 CORNERS…';hint.textContent='Tap opposite corners of the waiting-bay rectangle.'};
+$('reverse').onclick=()=>{reverse=!reverse;tracks.clear();save();hint.textContent='Direction changed. New tracks now use the new orientation.'};
+$('guard').onclick=()=>{state.dogGuard=!state.dogGuard;save();hint.textContent=state.dogGuard?'Dog guard ON: likely trailer double-counts are suppressed.':'Dog guard OFF.'};
+$('sensitivity').onclick=()=>{state.sensitivity=state.sensitivity==='NORMAL'?'HIGH':state.sensitivity==='HIGH'?'STRICT':'NORMAL';tracks.clear();save();hint.textContent=`Sensitivity ${state.sensitivity}. HIGH catches more; STRICT rejects more false detections.`};
+$('mode').onclick=()=>{state.trackMode=state.trackMode==='ALL'?'HEAVY':'ALL';tracks.clear();save();hint.textContent=state.trackMode==='HEAVY'?'Tracking heavy vehicles only.':'Tracking all road vehicles.'};
 $('minus').onclick=()=>{state.inside=Math.max(0,state.inside-1);save()};$('plus').onclick=()=>{state.inside++;save()};
 $('setInside').onclick=()=>{const v=prompt('How many vehicles are inside site right now?',String(state.inside));if(v!==null&&/^\d+$/.test(v.trim())){state.inside=Number(v);save()}};
-$('undo').onclick=()=>{const e=state.events.shift();if(!e)return;if(e.dir==='IN'){state.inTotal=Math.max(0,state.inTotal-1);state.inside=Math.max(0,state.inside-1)}else{state.outTotal=Math.max(0,state.outTotal-1);state.inside++}save()};
-$('reset').onclick=()=>{if(confirm('Reset ALL counts and movement history?')){state.inside=0;state.inTotal=0;state.outTotal=0;state.events=[];tracks.clear();save()}};
-$('export').onclick=()=>{const rows=[['timestamp','vehicle_type','direction','inside_after','track_id','confidence'],...state.events.slice().reverse().map(e=>[e.iso,e.type,e.dir,e.inside,e.track,e.confidence])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='site_vehicle_events_'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+$('manualIn').onclick=()=>manualEvent('IN');$('manualOut').onclick=()=>manualEvent('OUT');
+$('undo').onclick=()=>{const e=state.events.shift();if(!e)return;if(e.dir==='IN'){state.inTotal=Math.max(0,state.inTotal-1);state.inside=Math.max(0,state.inside-1)}else{state.outTotal=Math.max(0,state.outTotal-1);state.inside++}save();hint.textContent='Last event undone.'};
+$('resetShift').onclick=()=>{if(confirm('Reset counts and movement history for a new shift? Gate line and waiting bay will be kept.')){state.inside=0;state.inTotal=0;state.outTotal=0;state.events=[];tracks.clear();visibleWaiting.clear();save();hint.textContent='Shift reset. Calibration kept.'}};
+$('export').onclick=()=>{const rows=[['timestamp','vehicle_type','direction','inside_after','source','track_id','confidence'],...state.events.slice().reverse().map(e=>[e.iso,e.type,e.dir,e.inside,e.source,e.track,e.confidence])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='site_vehicle_events_'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 })();
 </script>
 </body>
