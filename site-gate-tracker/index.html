@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#080b10" />
+<title>Site Gate Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:#080b10;color:#fff;overscroll-behavior:none}
+#app{max-width:980px;margin:auto;padding:env(safe-area-inset-top) 10px env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 4px;gap:8px}
+h1{font-size:18px;margin:0}.status{font-size:12px;opacity:.8;text-align:right}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}.card{background:#131923;border:1px solid #253041;border-radius:12px;padding:10px;text-align:center}.num{font-size:29px;font-weight:800;line-height:1}.lab{font-size:11px;opacity:.7;margin-top:5px;letter-spacing:.08em}
+.stage{position:relative;width:100%;background:#000;border-radius:14px;overflow:hidden;border:1px solid #253041;touch-action:none}
+video,canvas{display:block;width:100%;height:auto}canvas{position:absolute;inset:0;z-index:2}.hint{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;background:#000b;padding:8px 10px;border-radius:9px;font-size:12px;pointer-events:none}
+.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}button{appearance:none;border:1px solid #35445c;background:#17202d;color:#fff;border-radius:11px;padding:12px;font-size:14px;font-weight:700}button.primary{background:#e8eef8;color:#0b0e13;border-color:#e8eef8}button.warn{border-color:#7a3f3f}.wide{grid-column:1/-1}
+.log{margin-top:8px;background:#10151e;border:1px solid #253041;border-radius:12px;overflow:hidden}.loghead{display:flex;justify-content:space-between;padding:9px 11px;font-size:12px;opacity:.75;border-bottom:1px solid #253041}.event{display:grid;grid-template-columns:70px 1fr 48px 50px;gap:6px;padding:8px 10px;border-bottom:1px solid #1d2735;font-size:12px}.event:last-child{border-bottom:0}.empty{padding:14px;text-align:center;opacity:.55;font-size:12px}
+.small{font-size:11px;opacity:.7;margin:8px 3px 0;line-height:1.35}
+@media (orientation:landscape){#app{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 330px;grid-template-areas:"stage side";gap:10px;padding:6px}.stage{grid-area:stage;align-self:start}#side{grid-area:side;max-height:calc(100vh - 12px);overflow:auto}header{padding-top:2px}.stats .num{font-size:25px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div class="hint" id="hint">Tap START CAMERA. Then SET GATE LINE and tap two points across the road.</div>
+  </div>
+  <div id="side">
+    <header><h1>Site Gate Tracker</h1><div class="status" id="status">Model not loaded</div></header>
+    <div class="stats">
+      <div class="card"><div class="num" id="inside">0</div><div class="lab">INSIDE</div></div>
+      <div class="card"><div class="num" id="inTotal">0</div><div class="lab">IN</div></div>
+      <div class="card"><div class="num" id="outTotal">0</div><div class="lab">OUT</div></div>
+    </div>
+    <div class="controls">
+      <button class="primary wide" id="start">START CAMERA</button>
+      <button id="gate">SET GATE LINE</button><button id="reverse">DIRECTION: NORMAL</button>
+      <button id="minus">INSIDE −1</button><button id="plus">INSIDE +1</button>
+      <button id="setInside">SET INSIDE TOTAL</button><button id="undo">UNDO LAST EVENT</button>
+      <button id="export">EXPORT CSV</button><button class="warn" id="reset">RESET ALL</button>
+    </div>
+    <div class="log"><div class="loghead"><span>RECENT MOVEMENTS</span><span id="fps"></span></div><div id="events"></div></div>
+    <div class="small">Runs on this iPhone. Video is processed in the browser and is not uploaded by this page. Keep Safari open and the screen awake while tracking. This is an operations tally aid, not a safety-critical traffic-control device.</div>
+  </div>
+</div>
+<script>
+(() => {
+'use strict';
+const VEHICLES = new Set(['car','truck','bus','motorcycle']);
+const LABEL = {car:'Light Vehicle',truck:'Truck / Truck & Dog',bus:'Bus',motorcycle:'Motorcycle'};
+const $ = id => document.getElementById(id);
+const video=$('video'), canvas=$('overlay'), ctx=canvas.getContext('2d');
+const stage=$('stage'), hint=$('hint'), statusEl=$('status'), fpsEl=$('fps');
+let model=null, stream=null, running=false, detecting=false, calibrating=false, gatePoints=[];
+let tracks=new Map(), nextId=1, reverse=false, wakeLock=null, lastDetect=0, frameCount=0, fpsStart=performance.now();
+let state=loadState();
+function loadState(){
+  try{return Object.assign({inside:0,inTotal:0,outTotal:0,events:[],line:null,reverse:false},JSON.parse(localStorage.getItem('siteGateTracker')||'{}'))}catch(e){return {inside:0,inTotal:0,outTotal:0,events:[],line:null,reverse:false}}
+}
+reverse=!!state.reverse;
+function save(){state.reverse=reverse;localStorage.setItem('siteGateTracker',JSON.stringify(state));renderStats();renderEvents()}
+function renderStats(){$('inside').textContent=state.inside;$('inTotal').textContent=state.inTotal;$('outTotal').textContent=state.outTotal;$('reverse').textContent='DIRECTION: '+(reverse?'REVERSED':'NORMAL')}
+function renderEvents(){const box=$('events');box.innerHTML='';if(!state.events.length){box.innerHTML='<div class="empty">No movements counted yet</div>';return}state.events.slice(0,12).forEach(e=>{const d=document.createElement('div');d.className='event';d.innerHTML=`<span>${esc(e.time)}</span><span>${esc(e.type)}</span><b>${esc(e.dir)}</b><span>#${e.inside}</span>`;box.appendChild(d)})}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+renderStats();renderEvents();
+async function keepAwake(){try{if('wakeLock'in navigator){wakeLock=await navigator.wakeLock.request('screen')}}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running)keepAwake()});
+async function start(){
+  if(running)return;
+  $('start').disabled=true;statusEl.textContent='Requesting camera…';
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:960},height:{ideal:540},frameRate:{ideal:30,max:30}},audio:false});
+    video.srcObject=stream;await video.play();
+    await new Promise(r=>{if(video.readyState>=2)r();else video.onloadedmetadata=r});
+    resizeCanvas();running=true;keepAwake();
+    statusEl.textContent='Loading detector…';hint.textContent='Camera live. Loading vehicle detector…';
+    await tf.setBackend('webgl');await tf.ready();
+    model=await cocoSsd.load({base:'lite_mobilenet_v2'});
+    statusEl.textContent='Tracking';hint.textContent=state.line?'Tracking. If IN/OUT is backwards, tap DIRECTION.':'Tap SET GATE LINE, then tap two points across the road.';
+    $('start').textContent='CAMERA RUNNING';loop();
+  }catch(e){console.error(e);statusEl.textContent='Camera/model error';hint.textContent='Could not start camera. Open this page in Safari over HTTPS, allow Camera access, then retry.';$('start').disabled=false}
+}
+function resizeCanvas(){if(!video.videoWidth)return;canvas.width=video.videoWidth;canvas.height=video.videoHeight}
+window.addEventListener('resize',resizeCanvas);video.addEventListener('loadedmetadata',resizeCanvas);
+function linePx(){if(!state.line)return null;return state.line.map(p=>[p[0]*canvas.width,p[1]*canvas.height])}
+function signedDist(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1];const len=Math.hypot(dx,dy)||1;return (dx*(p[1]-a[1])-dy*(p[0]-a[0]))/len}
+function projectionT(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],den=dx*dx+dy*dy||1;return ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/den}
+function iou(a,b){const ax2=a[0]+a[2],ay2=a[1]+a[3],bx2=b[0]+b[2],by2=b[1]+b[3],x1=Math.max(a[0],b[0]),y1=Math.max(a[1],b[1]),x2=Math.min(ax2,bx2),y2=Math.min(ay2,by2);const inter=Math.max(0,x2-x1)*Math.max(0,y2-y1);const union=a[2]*a[3]+b[2]*b[3]-inter;return union?inter/union:0}
+function matchDetections(dets,now){
+  const active=[...tracks.values()].filter(t=>now-t.lastSeen<2800), used=new Set();
+  for(const d of dets){
+    const [x,y,w,h]=d.bbox,cx=x+w/2,cy=y+h/2;let best=null,bestCost=1e9;
+    for(const t of active){if(used.has(t.id))continue;const dt=Math.min((now-t.lastSeen)/350,4),px=t.cx+t.vx*dt,py=t.cy+t.vy*dt,dist=Math.hypot(cx-px,cy-py),maxDist=Math.max(95,Math.hypot(w,h)*0.9);if(dist>maxDist)continue;const ov=iou(d.bbox,t.bbox),cost=dist/maxDist+(1-ov)*0.55;if(cost<bestCost){bestCost=cost;best=t}}
+    if(best){used.add(best.id);const ox=best.cx,oy=best.cy;best.vx=0.65*best.vx+0.35*(cx-ox);best.vy=0.65*best.vy+0.35*(cy-oy);best.cx=cx;best.cy=cy;best.bbox=d.bbox;best.score=d.score;best.lastSeen=now;best.votes[d.class]=(best.votes[d.class]||0)+1;best.label=Object.entries(best.votes).sort((a,b)=>b[1]-a[1])[0][0];d.track=best}else{const t={id:nextId++,cx,cy,vx:0,vy:0,bbox:d.bbox,score:d.score,lastSeen:now,stableSide:null,lastEvent:0,votes:{[d.class]:1},label:d.class};tracks.set(t.id,t);used.add(t.id);d.track=t}
+  }
+  for(const [id,t] of tracks){if(now-t.lastSeen>4500)tracks.delete(id)}
+  return dets;
+}
+function checkCrossing(t,now){
+  const ln=linePx();if(!ln)return;const [a,b]=ln,p=[t.cx,t.cy],dist=signedDist(p,a,b),margin=Math.max(9,canvas.height*0.012);let side=0;if(dist>margin)side=1;else if(dist<-margin)side=-1;if(!side)return;
+  if(t.stableSide===null){t.stableSide=side;return}
+  if(side===t.stableSide)return;
+  const proj=projectionT(p,a,b);if(proj<-.15||proj>1.15){t.stableSide=side;return}
+  if(now-t.lastEvent<1400){t.stableSide=side;return}
+  const old=t.stableSide;t.stableSide=side;t.lastEvent=now;let dir=(old===-1&&side===1)?'IN':'OUT';if(reverse)dir=dir==='IN'?'OUT':'IN';recordEvent(t,dir,now)
+}
+function recordEvent(t,dir,now){
+  if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}
+  const ev={time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type:LABEL[t.label]||t.label,dir,inside:state.inside,track:t.id,confidence:Number(t.score||0).toFixed(2)};state.events.unshift(ev);state.events=state.events.slice(0,500);save();navigator.vibrate?.(60)
+}
+async function detect(now){
+  if(!model||detecting||video.readyState<2)return;detecting=true;
+  try{const preds=await model.detect(video,20,0.36);const dets=preds.filter(p=>VEHICLES.has(p.class));matchDetections(dets,now);for(const d of dets)checkCrossing(d.track,now);draw(dets);frameCount++;if(now-fpsStart>3000){fpsEl.textContent=(frameCount*1000/(now-fpsStart)).toFixed(1)+' detections/s';frameCount=0;fpsStart=now}}
+  catch(e){console.error(e);statusEl.textContent='Detection error'}finally{detecting=false}
+}
+function draw(dets=[]){
+  ctx.clearRect(0,0,canvas.width,canvas.height);const ln=linePx();if(ln){ctx.strokeStyle='#fff';ctx.lineWidth=Math.max(3,canvas.width/240);ctx.beginPath();ctx.moveTo(...ln[0]);ctx.lineTo(...ln[1]);ctx.stroke();ctx.fillStyle='#fff';ctx.font=`${Math.max(15,canvas.width/42)}px -apple-system`;ctx.fillText(reverse?'OUT → IN orientation reversed':'Gate counting line',ln[0][0]+8,Math.max(22,ln[0][1]-9))}
+  if(calibrating&&gatePoints.length){ctx.fillStyle='#ffdf66';for(const p of gatePoints){ctx.beginPath();ctx.arc(p[0],p[1],9,0,Math.PI*2);ctx.fill()}if(gatePoints.length===2){ctx.strokeStyle='#ffdf66';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(...gatePoints[0]);ctx.lineTo(...gatePoints[1]);ctx.stroke()}}
+  for(const d of dets){const t=d.track,[x,y,w,h]=d.bbox;ctx.strokeStyle='#55e6ff';ctx.lineWidth=Math.max(2,canvas.width/320);ctx.strokeRect(x,y,w,h);ctx.fillStyle='#000c';ctx.fillRect(x,Math.max(0,y-25),Math.min(w,220),25);ctx.fillStyle='#fff';ctx.font=`${Math.max(13,canvas.width/48)}px -apple-system`;ctx.fillText(`#${t.id} ${LABEL[t.label]||t.label}`,x+4,Math.max(17,y-6))}
+}
+function loop(now=performance.now()){if(!running)return;if(now-lastDetect>330){lastDetect=now;detect(now)}requestAnimationFrame(loop)}
+canvas.addEventListener('pointerdown',e=>{if(!calibrating)return;const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height;gatePoints.push([x,y]);draw([]);if(gatePoints.length===2){state.line=gatePoints.map(p=>[p[0]/canvas.width,p[1]/canvas.height]);calibrating=false;$('gate').textContent='SET GATE LINE';hint.textContent='Gate saved. Tracking crossings now.';tracks.clear();save()}});
+$('start').onclick=start;
+$('gate').onclick=()=>{if(!running){hint.textContent='Start the camera first.';return}calibrating=true;gatePoints=[];$('gate').textContent='TAP 2 POINTS…';hint.textContent='Tap TWO points across the road where every vehicle must cross.'};
+$('reverse').onclick=()=>{reverse=!reverse;tracks.clear();save();hint.textContent='Direction changed. New tracks will use this orientation.'};
+$('minus').onclick=()=>{state.inside=Math.max(0,state.inside-1);save()};$('plus').onclick=()=>{state.inside++;save()};
+$('setInside').onclick=()=>{const v=prompt('How many vehicles are inside site right now?',String(state.inside));if(v!==null&&/^\d+$/.test(v.trim())){state.inside=Number(v);save()}};
+$('undo').onclick=()=>{const e=state.events.shift();if(!e)return;if(e.dir==='IN'){state.inTotal=Math.max(0,state.inTotal-1);state.inside=Math.max(0,state.inside-1)}else{state.outTotal=Math.max(0,state.outTotal-1);state.inside++}save()};
+$('reset').onclick=()=>{if(confirm('Reset ALL counts and movement history?')){state.inside=0;state.inTotal=0;state.outTotal=0;state.events=[];tracks.clear();save()}};
+$('export').onclick=()=>{const rows=[['timestamp','vehicle_type','direction','inside_after','track_id','confidence'],...state.events.slice().reverse().map(e=>[e.iso,e.type,e.dir,e.inside,e.track,e.confidence])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='site_vehicle_events_'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+})();
+</script>
+</body>
+</html>
