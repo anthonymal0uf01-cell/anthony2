@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#080b10">
+<title>Site Gate Tracker v6</title>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;background:#080b10;color:#fff;overscroll-behavior:none}#app{max-width:1120px;margin:auto;padding:env(safe-area-inset-top) 8px env(safe-area-inset-bottom)}.stage{position:relative;background:#000;border:1px solid #263346;border-radius:14px;overflow:hidden;touch-action:none}video,canvas{width:100%;height:auto;display:block}canvas{position:absolute;inset:0;z-index:2}.hint{position:absolute;left:8px;right:8px;bottom:8px;z-index:4;background:#000d;padding:8px 10px;border-radius:9px;font-size:12px}.flash{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:5;padding:9px 16px;border-radius:999px;background:#fff;color:#000;font-weight:900;font-size:16px;opacity:0;transition:.15s}.flash.show{opacity:1}.side{padding-top:8px}.top{display:flex;justify-content:space-between;align-items:center;gap:8px}.top h1{font-size:18px;margin:0}.status{font-size:11px;opacity:.82;text-align:right;max-width:60%}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:8px 0}.card{background:#121923;border:1px solid #263346;border-radius:11px;padding:9px;text-align:center}.num{font-size:27px;font-weight:850;line-height:1}.lab{font-size:9px;opacity:.7;letter-spacing:.08em;margin-top:4px}.controls{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}button,select{appearance:none;border:1px solid #35465f;background:#172130;color:#fff;border-radius:10px;padding:11px;font-size:13px;font-weight:750}.primary{background:#edf2fa;color:#0b0e13}.wide{grid-column:1/-1}.warn{border-color:#754040}.good{border-color:#2d7758}.health{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-top:7px}.health div{background:#0f151e;border:1px solid #253246;border-radius:8px;padding:6px 2px;text-align:center;font-size:9px}.identity{margin-top:8px;background:#101720;border:1px solid #263346;border-radius:11px;padding:8px}.identityHead{display:flex;justify-content:space-between;font-size:11px;opacity:.8;margin-bottom:5px}.idrow{display:grid;grid-template-columns:45px minmax(0,1fr) 82px 60px;gap:5px;padding:6px 2px;border-top:1px solid #1d2837;font-size:10px;align-items:center}.plate{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:800}.log{margin-top:8px;background:#101720;border:1px solid #263346;border-radius:11px;overflow:hidden}.loghead{display:flex;justify-content:space-between;padding:8px 10px;font-size:11px;opacity:.75;border-bottom:1px solid #263346}.event{display:grid;grid-template-columns:58px minmax(0,1fr) 33px 38px 72px;gap:4px;padding:7px 8px;border-bottom:1px solid #1d2837;font-size:10px;align-items:center}.event .p{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:750}.small{font-size:10px;opacity:.68;line-height:1.35;margin:7px 2px}.badge{font-size:10px;padding:2px 5px;border:1px solid #40506a;border-radius:99px}.privacy{font-size:9px;opacity:.55;line-height:1.35;margin-top:7px}@media(orientation:landscape){#app{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:8px;padding:5px}.side{max-height:calc(100vh - 10px);overflow:auto;padding-top:0}.stats .num{font-size:22px}}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="stage" id="stage"><video id="video" playsinline muted></video><canvas id="overlay"></canvas><div class="flash" id="flash">IN</div><div class="hint" id="hint">Start camera, then set the gate line.</div></div>
+<div class="side">
+<div class="top"><h1>Site Gate Tracker <span class="badge">v6 IDENTITY</span></h1><div class="status" id="status">Ready</div></div>
+<div class="stats"><div class="card"><div class="num" id="inside">0</div><div class="lab">INSIDE</div></div><div class="card"><div class="num" id="inTotal">0</div><div class="lab">IN</div></div><div class="card"><div class="num" id="outTotal">0</div><div class="lab">OUT</div></div><div class="card"><div class="num" id="waiting">0</div><div class="lab">WAITING</div></div></div>
+<div class="controls">
+<button class="primary wide" id="start">START CAMERA</button>
+<button id="gate">SET GATE LINE</button><button id="waitZone">SET WAITING BAY</button>
+<button id="reverse">DIRECTION: NORMAL</button><button id="anpr">ANPR: ON</button>
+<button id="dogGuard">DOG GUARD: ON</button><button id="pause">COUNTING: LIVE</button>
+<button id="setInside">SET INSIDE TOTAL</button><button id="undo">UNDO LAST</button>
+<select id="manualType"><option>Truck & Dog</option><option>Water Cart</option><option>Light Vehicle</option><option>Plant</option><option>Other</option></select><button class="good" id="manualIn">MANUAL IN</button>
+<button id="manualOut">MANUAL OUT</button><button id="capture">CAPTURE BEST TRACK</button>
+<button id="export">EXPORT CSV</button><button class="warn" id="reset">RESET SHIFT</button>
+</div>
+<div class="health"><div><b id="hz">0</b><br>INFER/S</div><div><b id="tracks">0</b><br>TRACKS</div><div><b id="detector">—</b><br>VISION</div><div><b id="anprHealth">—</b><br>ANPR</div><div><b id="queue">0</b><br>QUEUE</div></div>
+<div class="identity"><div class="identityHead"><span>LIVE VEHICLE IDENTITIES</span><span id="identityDiag"></span></div><div id="identities"><div class="small">No active identities yet</div></div></div>
+<div class="log"><div class="loghead"><span>RECENT MOVEMENTS</span><span id="diag"></span></div><div id="events"></div></div>
+<div class="privacy">Vehicle tracking and gate logic run on this phone. With ANPR ON, only selected compressed vehicle crops are sent to the configured public Hugging Face plate-recognition Space; the live video stream is not uploaded. Use as an operations tally aid, not as a safety-critical traffic-control device.</div>
+</div></div>
+<script type="module" src="./v6.js"></script>
+</body>
+</html>
