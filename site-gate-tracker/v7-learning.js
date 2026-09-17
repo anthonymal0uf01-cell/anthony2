@@ -22,7 +22,7 @@ function injectUI(){
  <div class="small" id="learnHint">Only difficult/uncertain vehicle passes are kept. Samples stay on this phone until you export them.</div>`;side.appendChild(box);
  $('labelLatest').onclick=labelLatest;$('setSpecialist').onclick=setSpecialist;$('exportLearning').onclick=exportZip;$('clearLearning').onclick=clearAll;
 }
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c]))}
 function normalizePlate(s){return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)}
 function parseIdentityRows(){
  const rows=[...document.querySelectorAll('#identities .idrow')],out=new Map();for(const r of rows){const c=[...r.children].map(x=>x.textContent.trim());if(c.length<4)continue;const id=(c[0]||'').replace(/^#/,'');const type=c[1]||'';let plate=c[2]||'';const status=c[3]||'';plate=plate.replace(/^\?/,'');if(!id)continue;out.set(id,{id,type,plate:normalizePlate(plate),status})}activeTracks=out;return out;
@@ -34,8 +34,23 @@ function ham(a,b){if(!a||!b||a.length!==b.length)return 64;let n=0;for(let i=0;i
 async function captureFrameBlob(){return new Promise(res=>{if(!video?.videoWidth)return res(null);const max=1280,s=Math.min(1,max/video.videoWidth),w=Math.round(video.videoWidth*s),h=Math.round(video.videoHeight*s),c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(video,0,0,w,h);c.toBlob(res,'image/jpeg',.9)})}
 function hardScore(q,status){let s=0;if(status!=='CONFIRMED')s+=.4;s+=Math.min(.25,Math.max(0,(.45-q.sharpness)*.55));s+=Math.min(.2,q.glare*1.5);s+=Math.min(.2,q.dark*1.8);s+=Math.min(.1,Math.abs(q.brightness-.5)*.2);return Math.min(1,s)}
 async function maybeCapture(){
- if(Date.now()-lastCapture<1800||!db||!video?.videoWidth)return;const tracks=parseIdentityRows();if(!tracks.size)return;const q=await frameQuality(),hash=await hashFrame();if(!q)return;for(const t of tracks.values()){
-   const hard=hardScore(q,t.status);if(hard<.28&&t.status==='CONFIRMED')continue;const existing=(await all()).filter(x=>x.trackId===t.id).sort((a,b)=>b.createdAt-a.createdAt);if(existing.length>=12)continue;if(existing.some(x=>ham(x.hash,hash)<8&&x.hardScore>=hard))continue;const blob=await captureFrameBlob();if(!blob)continue;const id=`${Date.now()}-${t.id}-${Math.random().toString(36).slice(2,6)}`;await put({id,trackId:t.id,type:t.type,status:t.status,candidate:t.plate||'',label:t.status==='CONFIRMED'?t.plate:'',quality:q,hardScore:hard,hash,createdAt:Date.now(),blob});lastCapture=Date.now();if(specialistUrl&&t.status!=='CONFIRMED')queueAdvanced(t.id)}break}updateStats();
+ if(Date.now()-lastCapture<1800||!db||!video?.videoWidth)return;
+ const tracks=parseIdentityRows();if(!tracks.size)return;
+ const q=await frameQuality(),hash=await hashFrame();if(!q)return;
+ for(const t of tracks.values()){
+   const hard=hardScore(q,t.status);
+   if(hard<.28&&t.status==='CONFIRMED')continue;
+   const existing=(await all()).filter(x=>x.trackId===t.id).sort((a,b)=>b.createdAt-a.createdAt);
+   if(existing.length>=12)continue;
+   if(existing.some(x=>ham(x.hash,hash)<8&&x.hardScore>=hard))continue;
+   const blob=await captureFrameBlob();if(!blob)continue;
+   const id=`${Date.now()}-${t.id}-${Math.random().toString(36).slice(2,6)}`;
+   await put({id,trackId:t.id,type:t.type,status:t.status,candidate:t.plate||'',label:t.status==='CONFIRMED'?t.plate:'',quality:q,hardScore:hard,hash,createdAt:Date.now(),blob});
+   lastCapture=Date.now();
+   if(specialistUrl&&t.status!=='CONFIRMED')queueAdvanced(t.id);
+   break;
+ }
+ updateStats();
 }
 async function propagateLabels(){const tracks=parseIdentityRows();const samples=await all();let changed=0;for(const t of tracks.values()){if(t.status!=='CONFIRMED'||!t.plate)continue;for(const s of samples){if(s.trackId===t.id&&!s.label){s.label=t.plate;s.labelSource='tracker-confirmed';await put(s);changed++}}}if(changed)updateStats()}
 async function updateStats(){if(!db)return;const a=await all();$('caseCount').textContent=a.length;$('labelCount').textContent=a.filter(x=>x.label).length+' labelled';$('hardCount').textContent=a.filter(x=>x.hardScore>=.55).length+' hard';$('learnState').textContent=specialistUrl?'learning + advanced':'learning local'}
