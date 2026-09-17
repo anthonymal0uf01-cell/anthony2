@@ -1,0 +1,39 @@
+name: Site Gate v7 Check
+on:
+  push:
+    paths:
+      - 'site-gate-tracker/v7.html'
+      - 'site-gate-tracker/v7-learning.js'
+      - 'site-gate-tracker/specialist/**'
+      - '.github/workflows/site-gate-v7-check.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python syntax
+        run: python -m py_compile site-gate-tracker/specialist/*.py
+      - name: Browser module syntax
+        run: |
+          cp site-gate-tracker/v7-learning.js /tmp/v7-learning.mjs
+          node --check /tmp/v7-learning.mjs
+      - name: HTML wiring
+        run: |
+          grep -q 'src="./v6.js"' site-gate-tracker/v7.html
+          grep -q 'src="./v7-learning.js"' site-gate-tracker/v7.html
+          grep -q 'id="identities"' site-gate-tracker/v7.html
+          grep -q 'id="video"' site-gate-tracker/v7.html
+      - name: Architecture assertions
+        run: |
+          grep -q 'log_softmax' site-gate-tracker/specialist/advanced_anpr_service.py
+          grep -q 'MambaIRv2' site-gate-tracker/specialist/advanced_anpr_service.py
+          grep -q 'fuse' site-gate-tracker/specialist/advanced_anpr_service.py
+          grep -q 'hardScore' site-gate-tracker/v7-learning.js
