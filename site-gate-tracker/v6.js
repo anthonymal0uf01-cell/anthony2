@@ -5,19 +5,18 @@ const video=$('video'),canvas=$('overlay'),ctx=canvas.getContext('2d'),stage=$('
 const VEHICLE_IDS=new Set([2,3,5,7]);
 const CLASS_NAME={2:'car',3:'motorcycle',5:'bus',7:'truck'};
 const LABEL={car:'Light Vehicle',motorcycle:'Motorcycle',bus:'Bus',truck:'Heavy Vehicle'};
-const YOLO26_URL='https://huggingface.co/flotek/yolo26n-onnx/resolve/main/model.onnx?download=true';
+const YOLO26_URL='https://huggingface.co/besit/yolo-onnx/resolve/main/yolo26n.onnx?download=true';
 const ANPR_SPACE='Rickkosse/license-plate-detector';
 const SESSION_ID=Date.now().toString(36).slice(-6).toUpperCase();
-const defaults={version:6,inside:0,inTotal:0,outTotal:0,events:[],line:null,waiting:null,reverse:false,dogGuard:true,paused:false,anpr:true};
+const freshDefaults=()=>({version:6,inside:0,inTotal:0,outTotal:0,events:[],line:null,waiting:null,reverse:false,dogGuard:true,paused:false,anpr:true});
 let state=load();
-let stream=null,running=false,detecting=false,detector=null,detectorName='—',inferCount=0,inferWindow=performance.now(),inferEMA=0,lastInfer=0,wakeLock=null;
+let stream=null,running=false,detecting=false,detector=null,detectorName='—',inferCount=0,inferTotal=0,inferWindow=performance.now(),inferEMA=0,lastInfer=0,wakeLock=null;
 let trackMap=new Map(),nextTrack=1,lastDets=[],recentHeavy=[],calMode=null,taps=[],lastUi=0;
 let anprClient=null,anprConnectPromise=null,anprEndpoint=null,anprQueue=[],anprBusy=false,anprStatus='IDLE',anprFailures=0;
 
-function load(){try{return Object.assign({},defaults,JSON.parse(localStorage.getItem('siteGateTracker')||'{}'),{version:6})}catch{return {...defaults}}}
+function load(){try{return Object.assign(freshDefaults(),JSON.parse(localStorage.getItem('siteGateTracker')||'{}'),{version:6})}catch{return freshDefaults()}}
 function save(){localStorage.setItem('siteGateTracker',JSON.stringify(state));render()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-function pct(x){return Number.isFinite(x)?Math.round(x*100)+'%':'—'}
 function heavy(name){return name==='truck'||name==='bus'}
 function center(b){return[(b[0]+b[2])/2,(b[1]+b[3])/2]}
 function area(b){return Math.max(0,b[2]-b[0])*Math.max(0,b[3]-b[1])}
@@ -26,6 +25,8 @@ function linePx(){return state.line?state.line.map(p=>[p[0]*canvas.width,p[1]*ca
 function signedDist(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1;return(dx*(p[1]-a[1])-dy*(p[0]-a[0]))/len}
 function projT(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],den=dx*dx+dy*dy||1;return((p[0]-a[0])*dx+(p[1]-a[1])*dy)/den}
 function insideWaiting(p){if(!state.waiting)return false;const[x1,y1,x2,y2]=state.waiting;return p[0]>=Math.min(x1,x2)*canvas.width&&p[0]<=Math.max(x1,x2)*canvas.width&&p[1]>=Math.min(y1,y2)*canvas.height&&p[1]<=Math.max(y1,y2)*canvas.height}
+function shortId(id){const a=String(id).split('-');return a[a.length-1]}
+function plateLabel(t){const p=t.plate||t.bestCandidate||'';const p2=t.plate2||t.bestCandidate2||'';return p+(p&&p2?' / ':'')+p2}
 
 function render(){
  $('inside').textContent=state.inside;$('inTotal').textContent=state.inTotal;$('outTotal').textContent=state.outTotal;
@@ -33,12 +34,15 @@ function render(){
  $('detector').textContent=detectorName;$('anprHealth').textContent=state.anpr?anprStatus:'OFF';$('queue').textContent=anprQueue.length+(anprBusy?1:0);
  const active=[...trackMap.values()].filter(t=>performance.now()-t.lastSeen<3500).sort((a,b)=>b.lastSeen-a.lastSeen);
  $('tracks').textContent=active.length;$('waiting').textContent=active.filter(t=>insideWaiting([t.cx,t.cy])).length;
- const ib=$('identities');ib.innerHTML='';if(!active.length)ib.innerHTML='<div class="small">No active identities yet</div>';else active.slice(0,8).forEach(t=>{const d=document.createElement('div');d.className='idrow';const plate=t.plate||t.bestCandidate||'observing';const st=t.plate?'CONFIRMED':(t.anprAttempts?'FUSING':'TRACKING');d.innerHTML=`<b>#${esc(shortId(t.id))}</b><span>${esc(LABEL[t.label]||t.label)}</span><span class="plate">${esc(plate)}</span><span>${esc(st)}</span>`;ib.appendChild(d)});
+ const ib=$('identities');ib.innerHTML='';
+ if(!active.length)ib.innerHTML='<div class="small">No active identities yet</div>';
+ else active.slice(0,8).forEach(t=>{const d=document.createElement('div');d.className='idrow';const plate=plateLabel(t)||'observing';const st=t.plate?'CONFIRMED':(t.anprAttempts?'FUSING':'TRACKING');d.innerHTML=`<b>#${esc(shortId(t.id))}</b><span>${esc(LABEL[t.label]||t.label)}</span><span class="plate">${esc(plate)}</span><span>${esc(st)}</span>`;ib.appendChild(d)});
  $('identityDiag').textContent=active.filter(t=>t.plate).length+' confirmed';
- const eb=$('events');eb.innerHTML='';if(!state.events.length)eb.innerHTML='<div class="small" style="padding:12px;text-align:center">No movements yet</div>';state.events.slice(0,14).forEach(e=>{const d=document.createElement('div');d.className='event';d.innerHTML=`<span>${esc(e.time)}</span><span>${esc(e.type)}</span><b>${esc(e.dir)}</b><span>#${e.inside}</span><span class="p">${esc(e.plate||'—')}</span>`;eb.appendChild(d)});
+ const eb=$('events');eb.innerHTML='';
+ if(!state.events.length)eb.innerHTML='<div class="small" style="padding:12px;text-align:center">No movements yet</div>';
+ state.events.slice(0,14).forEach(e=>{const d=document.createElement('div');d.className='event';const p=[e.plate,e.plate2].filter(Boolean).join('/');d.innerHTML=`<span>${esc(e.time)}</span><span>${esc(e.type)}</span><b>${esc(e.dir)}</b><span>#${e.inside}</span><span class="p">${esc(p||'—')}</span>`;eb.appendChild(d)});
  $('diag').textContent=detectorName+(inferEMA?' · '+Math.round(inferEMA)+'ms':'');
 }
-function shortId(id){const a=String(id).split('-');return a[a.length-1]}
 render();
 
 async function keepAwake(){try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch{}}
@@ -51,17 +55,17 @@ async function loadYOLO26(){
  $('status').textContent='Loading YOLO26…';
  let session;
  try{session=await ort.InferenceSession.create(YOLO26_URL,{executionProviders:['webgpu','wasm']})}catch(e){console.warn('WebGPU load failed, trying WASM',e);session=await ort.InferenceSession.create(YOLO26_URL,{executionProviders:['wasm']})}
- const inputName=session.inputNames[0],outputName=session.outputNames[0],prep=document.createElement('canvas');prep.width=640;prep.height=640;const pctx=prep.getContext('2d',{willReadFrequently:true});
+ const inputName=session.inputNames[0],outputName=session.outputNames[0],prep=document.createElement('canvas');
+ prep.width=640;prep.height=640;const pctx=prep.getContext('2d',{willReadFrequently:true});
  detector={kind:'yolo26',predict:async()=>{
    const w=video.videoWidth,h=video.videoHeight,scale=Math.min(640/w,640/h),dw=Math.round(w*scale),dh=Math.round(h*scale),px=(640-dw)/2,py=(640-dh)/2;
-   pctx.fillStyle='black';pctx.fillRect(0,0,640,640);pctx.drawImage(video,0,0,w,h,px,py,dw,dh);
+   pctx.fillStyle='rgb(114,114,114)';pctx.fillRect(0,0,640,640);pctx.drawImage(video,0,0,w,h,px,py,dw,dh);
    const rgba=pctx.getImageData(0,0,640,640).data,n=640*640,x=new Float32Array(n*3);
    for(let i=0,j=0;i<n;i++,j+=4){x[i]=rgba[j]/255;x[n+i]=rgba[j+1]/255;x[2*n+i]=rgba[j+2]/255}
    const feeds={[inputName]:new ort.Tensor('float32',x,[1,3,640,640])},out=await session.run(feeds),o=out[outputName]||out[Object.keys(out)[0]],data=o.data,dims=o.dims||[];
-   let rows=[];
-   if(data.length%6===0&&(dims[dims.length-1]===6||data.length<=6000)){
-     const count=data.length/6;for(let i=0;i<count;i++){const k=i*6;let x1=Number(data[k]),y1=Number(data[k+1]),x2=Number(data[k+2]),y2=Number(data[k+3]),score=Number(data[k+4]),cls=Math.round(Number(data[k+5]));if(!VEHICLE_IDS.has(cls)||score<.24)continue;if(Math.max(x1,y1,x2,y2)<=2){x1*=640;y1*=640;x2*=640;y2*=640}x1=(x1-px)/scale;y1=(y1-py)/scale;x2=(x2-px)/scale;y2=(y2-py)/scale;rows.push({name:CLASS_NAME[cls],score,bbox:[Math.max(0,x1),Math.max(0,y1),Math.min(w,x2),Math.min(h,y2)]})}
-   }else throw new Error('Unexpected YOLO26 output '+dims.join('x'));
+   if(data.length%6!==0||!(dims[dims.length-1]===6||data.length<=6000))throw new Error('Unexpected YOLO26 output '+dims.join('x'));
+   const rows=[],count=data.length/6;
+   for(let i=0;i<count;i++){const k=i*6;let x1=Number(data[k]),y1=Number(data[k+1]),x2=Number(data[k+2]),y2=Number(data[k+3]),score=Number(data[k+4]),cls=Math.round(Number(data[k+5]));if(!VEHICLE_IDS.has(cls)||score<.24)continue;if(Math.max(x1,y1,x2,y2)<=2){x1*=640;y1*=640;x2*=640;y2*=640}x1=(x1-px)/scale;y1=(y1-py)/scale;x2=(x2-px)/scale;y2=(y2-py)/scale;rows.push({name:CLASS_NAME[cls],score,bbox:[Math.max(0,x1),Math.max(0,y1),Math.min(w,x2),Math.min(h,y2)]})}
    return rows.filter(d=>area(d.bbox)>400);
  }};
  detectorName='YOLO26';$('status').textContent='YOLO26 local · identity fusion';render();
@@ -80,13 +84,14 @@ async function loadDetector(){try{await loadYOLO26()}catch(e){console.warn('YOLO
 async function start(){
  if(running)return;$('start').disabled=true;$('status').textContent='Requesting camera…';
  try{
-   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30,max:30}},audio:false});video.srcObject=stream;await video.play();await new Promise(r=>video.readyState>=2?r():video.addEventListener('loadedmetadata',r,{once:true}));resize();await loadDetector();running=true;keepAwake();$('start').textContent='CAMERA RUNNING';$('hint').textContent=state.line?'Tracking physical vehicles through the gate.':'Set the gate line with two taps.';requestAnimationFrame(loop);if(state.anpr)connectANPR().catch(()=>{});
- }catch(e){console.error(e);$('status').textContent='Camera/model error';$('hint').textContent='Open in Safari over HTTPS and allow Camera.';$('start').disabled=false}
+   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30,max:30}},audio:false});
+   video.srcObject=stream;await video.play();await new Promise(r=>video.readyState>=2?r():video.addEventListener('loadedmetadata',r,{once:true}));resize();await loadDetector();running=true;keepAwake();$('start').textContent='CAMERA RUNNING';$('hint').textContent=state.line?'Tracking physical vehicles through the gate.':'Set the gate line with two taps.';requestAnimationFrame(loop);if(state.anpr)connectANPR().catch(()=>{});
+ }catch(e){console.error(e);$('status').textContent='Camera/model error';$('hint').textContent='Could not start. Open in Safari over HTTPS and allow Camera.';$('start').disabled=false}
 }
 function resize(){if(video.videoWidth){canvas.width=video.videoWidth;canvas.height=video.videoHeight}}
 video.addEventListener('loadedmetadata',resize);window.addEventListener('resize',resize);
 
-function newTrack(d,now){const c=center(d.bbox),id=SESSION_ID+'-'+(nextTrack++);return{id,bbox:d.bbox,cx:c[0],cy:c[1],vx:0,vy:0,lastSeen:now,hits:1,score:d.score,label:d.name,votes:{[d.name]:d.score},stableSide:null,candidateSide:null,candidateCount:0,lastEvent:0,plateObs:[],plate:null,plateConfidence:0,bestCandidate:null,anprAttempts:0,lastAnpr:0,anprPending:false}}
+function newTrack(d,now){const c=center(d.bbox),id=SESSION_ID+'-'+(nextTrack++);return{id,bbox:d.bbox,cx:c[0],cy:c[1],vx:0,vy:0,lastSeen:now,hits:1,score:d.score,label:d.name,votes:{[d.name]:d.score},stableSide:null,candidateSide:null,candidateCount:0,lastEvent:0,plateObs:[],plateObs2:[],plate:null,plate2:null,plateConfidence:0,plate2Confidence:0,bestCandidate:null,bestCandidate2:null,anprAttempts:0,lastAnpr:0,anprPending:false,bestAnprQ:0}}
 function updateTracks(dets,now){
  const active=[...trackMap.values()].filter(t=>now-t.lastSeen<3500),used=new Set();dets.sort((a,b)=>area(b.bbox)-area(a.bbox));
  for(const d of dets){const c=center(d.bbox),diag=Math.hypot(d.bbox[2]-d.bbox[0],d.bbox[3]-d.bbox[1]);let best=null,bestCost=99;
@@ -106,18 +111,15 @@ function checkCrossing(t,now){
  if(state.dogGuard&&heavy(t.label)){recentHeavy=recentHeavy.filter(x=>now-x.time<2600);const dup=recentHeavy.some(x=>x.dir===dir&&x.id!==t.id&&now-x.time<1900);if(dup){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}recentHeavy.push({time:now,dir,id:t.id})}
  t.stableSide=side;t.candidateSide=null;t.candidateCount=0;t.lastEvent=now;addEvent(dir,LABEL[t.label]||t.label,'AI',t);if(state.anpr&&!t.plate)scheduleANPR(t,now,true);
 }
-function addEvent(dir,type,source='AI',track=null){if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}const e={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type,dir,inside:state.inside,source,trackId:track?.id||'',plate:track?.plate||track?.bestCandidate||'',plateConfidence:track?.plateConfidence||0};state.events.unshift(e);state.events=state.events.slice(0,500);save();flash(dir,track?.plate||'')}
-function backfillEvents(t){let changed=false;for(const e of state.events){if(e.trackId===t.id&&t.plate&&e.plate!==t.plate){e.plate=t.plate;e.plateConfidence=t.plateConfidence;changed=true}}if(changed)save()}
+function addEvent(dir,type,source='AI',track=null){if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}const e={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type,dir,inside:state.inside,source,trackId:track?.id||'',plate:track?.plate||track?.bestCandidate||'',plate2:track?.plate2||track?.bestCandidate2||'',plateConfidence:track?.plateConfidence||0,plate2Confidence:track?.plate2Confidence||0};state.events.unshift(e);state.events=state.events.slice(0,500);save();flash(dir,track?.plate||'')}
+function backfillEvents(t){let changed=false;for(const e of state.events){if(e.trackId!==t.id)continue;if(t.plate&&e.plate!==t.plate){e.plate=t.plate;e.plateConfidence=t.plateConfidence;changed=true}if(t.plate2&&e.plate2!==t.plate2){e.plate2=t.plate2;e.plate2Confidence=t.plate2Confidence;changed=true}}if(changed)save()}
 function flash(dir,plate=''){const f=$('flash');f.textContent=dir+(plate?' · '+plate:'');f.classList.add('show');setTimeout(()=>f.classList.remove('show'),900)}
 
 function normalizePlate(s){return String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)}
 const CONF=new Set(['0O','O0','1I','I1','1L','L1','2Z','Z2','5S','S5','6G','G6','8B','B8']);
-function distance(a,b){if(a.length!==b.length)return 99;let d=0;for(let i=0;i<a.length;i++){if(a[i]===b[i])continue;d+=CONF.has(a[i]+b[i])?.35:1}return d}
-function recomputePlate(t){
- const obs=t.plateObs;if(!obs.length)return;const candidates=[...new Set(obs.map(o=>o.text))];let best=null,bestScore=-1,bestSupport=0,total=obs.reduce((s,o)=>s+o.weight,0)||1;
- for(const c of candidates){let score=0,support=0;for(const o of obs){const d=distance(c,o.text);const sim=d===0?1:d<=.7?.62:0;if(sim){score+=o.weight*sim;support++}}if(score>bestScore){best=c;bestScore=score;bestSupport=support}}
- t.bestCandidate=best;const ratio=bestScore/total;t.plateConfidence=Math.min(.99,ratio*(.72+Math.min(bestSupport,4)*.07));if((bestSupport>=2&&ratio>=.56)||(bestSupport>=3&&ratio>=.48)){t.plate=best;backfillEvents(t)}
-}
+function distance(a,b){if(a.length!==b.length)return 99;let d=0;for(let i=0;i<a.length;i++){if(a[i]===b[i])continue;d+=CONF.has(a[i]+b[i])?0.35:1}return d}
+function fuseSlot(obs){if(!obs.length)return{best:null,confidence:0,confirmed:false};const candidates=[...new Set(obs.map(o=>o.text))],total=obs.reduce((s,o)=>s+o.weight,0)||1;let best=null,bestScore=-1,bestSupport=0;for(const c of candidates){let score=0,support=0;for(const o of obs){const d=distance(c,o.text),sim=d===0?1:(d<=.7?0.62:0);if(sim){score+=o.weight*sim;support++}}if(score>bestScore){best=c;bestScore=score;bestSupport=support}}const ratio=bestScore/total,confidence=Math.min(.99,ratio*(.72+Math.min(bestSupport,4)*.07)),confirmed=(bestSupport>=2&&ratio>=.56)||(bestSupport>=3&&ratio>=.48);return{best,confidence,confirmed}}
+function recomputePlate(t){const a=fuseSlot(t.plateObs),b=fuseSlot(t.plateObs2);t.bestCandidate=a.best;t.plateConfidence=a.confidence;if(a.confirmed)t.plate=a.best;t.bestCandidate2=b.best;t.plate2Confidence=b.confidence;if(b.confirmed&&b.best!==t.plate)t.plate2=b.best;backfillEvents(t)}
 function parseANPR(text){const out=[];const s=String(text||'').toUpperCase();const re=/([A-Z0-9][A-Z0-9 -]{2,11})\s*\(OCR\s+(\d{1,3})%\)/g;let m;while((m=re.exec(s))){const p=normalizePlate(m[1]);if(p.length>=3&&p.length<=10&&!/PLATEDETECTED|UNREADABLE/.test(p))out.push({text:p,conf:Math.min(1,Number(m[2])/100)})}return out}
 
 async function connectANPR(){
@@ -128,35 +130,40 @@ async function cropTrack(t){
  if(!video.videoWidth)return null;const b=t.bbox,pad=.06*Math.max(b[2]-b[0],b[3]-b[1]),sx=Math.max(0,b[0]-pad),sy=Math.max(0,b[1]-pad),ex=Math.min(video.videoWidth,b[2]+pad),ey=Math.min(video.videoHeight,b[3]+pad),sw=ex-sx,sh=ey-sy;if(sw<100||sh<70)return null;const max=900,scale=Math.min(1,max/Math.max(sw,sh)),w=Math.max(1,Math.round(sw*scale)),h=Math.max(1,Math.round(sh*scale)),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.drawImage(video,sx,sy,sw,sh,0,0,w,h);const q=Math.min(1,.35+.4*Math.min(1,area(b)/(canvas.width*canvas.height*.18))+.25*(t.score||0));const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.88));return blob?{blob,q,w,h}:null;
 }
 async function scheduleANPR(t,now=performance.now(),force=false){
- if(!state.anpr||t.plate||t.anprPending||t.anprAttempts>=4)return;if(!force&&(t.hits<3||now-t.lastAnpr<1400))return;const bw=t.bbox[2]-t.bbox[0],bh=t.bbox[3]-t.bbox[1];if(!force&&(bw<180||bh<100||area(t.bbox)<canvas.width*canvas.height*.018))return;t.anprPending=true;t.lastAnpr=now;t.anprAttempts++;
- try{const crop=await cropTrack(t);if(!crop){t.anprPending=false;return}if(anprQueue.length>=5)anprQueue.shift();anprQueue.push({t,blob:crop.blob,q:crop.q,ts:Date.now()});render();pumpANPR()}catch{t.anprPending=false}
+ if(!state.anpr||t.plate||t.anprPending||t.anprAttempts>=4)return;if(!force&&(t.hits<3||now-t.lastAnpr<1400))return;const bw=t.bbox[2]-t.bbox[0],bh=t.bbox[3]-t.bbox[1];if(!force&&(bw<180||bh<100||area(t.bbox)<canvas.width*canvas.height*.018))return;t.anprPending=true;t.lastAnpr=now;
+ try{const crop=await cropTrack(t);if(!crop){t.anprPending=false;return}if(!force&&t.bestAnprQ&&crop.q<t.bestAnprQ-.12){t.anprPending=false;return}t.bestAnprQ=Math.max(t.bestAnprQ||0,crop.q);t.anprAttempts++;if(anprQueue.length>=5){const old=anprQueue.shift();if(old?.t)old.t.anprPending=false}anprQueue.push({t,blob:crop.blob,q:crop.q,ts:Date.now()});render();pumpANPR()}catch{t.anprPending=false}
 }
 async function callANPR(blob){const c=await connectANPR();const eps=[anprEndpoint,'/run','/predict'].filter((x,i,a)=>x&&a.indexOf(x)===i);let last;for(const ep of eps){try{return await c.predict(ep,[handle_file(blob),.35])}catch(e){last=e}}throw last||new Error('ANPR endpoint unavailable')}
 async function pumpANPR(){
  if(anprBusy||!state.anpr||!anprQueue.length)return;anprBusy=true;const job=anprQueue.shift(),t=job.t;anprStatus='BUSY';render();
- try{const result=await callANPR(job.blob),txt=(result?.data||[]).find(x=>typeof x==='string')||'',reads=parseANPR(txt);for(const r of reads){t.plateObs.push({text:r.text,conf:r.conf,weight:Math.max(.05,r.conf*job.q),time:Date.now()})}t.plateObs=t.plateObs.slice(-12);recomputePlate(t);anprFailures=0;anprStatus='READY'}catch(e){console.warn('ANPR failed',e);anprFailures++;anprStatus=anprFailures>2?'ERR':'RETRY';anprClient=null;anprConnectPromise=null}finally{t.anprPending=false;anprBusy=false;render();setTimeout(pumpANPR,250)}
+ try{const result=await callANPR(job.blob),txt=(result?.data||[]).find(x=>typeof x==='string')||'',reads=parseANPR(txt);if(reads[0])t.plateObs.push({text:reads[0].text,conf:reads[0].conf,weight:Math.max(.05,reads[0].conf*job.q),time:Date.now()});if(reads[1])t.plateObs2.push({text:reads[1].text,conf:reads[1].conf,weight:Math.max(.05,reads[1].conf*job.q),time:Date.now()});t.plateObs=t.plateObs.slice(-12);t.plateObs2=t.plateObs2.slice(-12);recomputePlate(t);anprFailures=0;anprStatus='READY'}catch(e){console.warn('ANPR failed',e);anprFailures++;anprStatus=anprFailures>2?'ERR':'RETRY';anprClient=null;anprConnectPromise=null}finally{t.anprPending=false;anprBusy=false;render();setTimeout(pumpANPR,250)}
 }
 
-async function infer(now){if(detecting||!detector)return;detecting=true;const t0=performance.now();try{let dets=await detector.predict();lastDets=updateTracks(dets,now);for(const d of lastDets){checkCrossing(d.track,now);scheduleANPR(d.track,now,false)}inferCount++;const dt=performance.now()-t0;inferEMA=inferEMA?inferEMA*.82+dt*.18:dt;if(detector.kind==='yolo26'&&inferCount>5&&inferEMA>2600){console.warn('YOLO26 too slow, switching to fallback');await loadSSD()}}catch(e){console.warn('Inference error',e);if(detector?.kind==='yolo26'){try{await loadSSD()}catch{}}}finally{detecting=false}}
+async function infer(now){if(detecting||!detector)return;detecting=true;const t0=performance.now();try{const dets=await detector.predict();lastDets=updateTracks(dets,now);for(const d of lastDets){checkCrossing(d.track,now);scheduleANPR(d.track,now,false)}inferCount++;inferTotal++;const dt=performance.now()-t0;inferEMA=inferEMA?inferEMA*.82+dt*.18:dt;if(detector.kind==='yolo26'&&inferTotal>6&&inferEMA>2600){console.warn('YOLO26 too slow, switching to fallback');await loadSSD()}}catch(e){console.warn('Inference error',e);if(detector?.kind==='yolo26'){try{await loadSSD()}catch{}}}finally{detecting=false}}
 function loop(now){if(!running)return;if(now-lastInfer>Math.max(180,Math.min(650,inferEMA*.45||250))){lastInfer=now;infer(now)}draw(now);if(now-inferWindow>1000){$('hz').textContent=inferCount;inferCount=0;inferWindow=now}if(now-lastUi>300){lastUi=now;render()}requestAnimationFrame(loop)}
 
 function draw(now){
  ctx.clearRect(0,0,canvas.width,canvas.height);const ln=linePx();if(ln){ctx.strokeStyle='#fff';ctx.lineWidth=Math.max(3,canvas.width/400);ctx.beginPath();ctx.moveTo(...ln[0]);ctx.lineTo(...ln[1]);ctx.stroke()}
  if(state.waiting){const[x1,y1,x2,y2]=state.waiting;ctx.save();ctx.strokeStyle='#f0c36a';ctx.lineWidth=3;ctx.setLineDash([14,9]);ctx.strokeRect(x1*canvas.width,y1*canvas.height,(x2-x1)*canvas.width,(y2-y1)*canvas.height);ctx.restore()}
- for(const t of trackMap.values()){if(now-t.lastSeen>1800)continue;const[x1,y1,x2,y2]=t.bbox;ctx.strokeStyle=t.plate?'#49d17d':'#4db2ff';ctx.lineWidth=3;ctx.strokeRect(x1,y1,x2-x1,y2-y1);const text=`#${shortId(t.id)} ${LABEL[t.label]||t.label}${t.plate?' · '+t.plate:t.bestCandidate?' · ?'+t.bestCandidate:''}`;ctx.font=`${Math.max(14,canvas.width/70)}px -apple-system,sans-serif`;const tw=ctx.measureText(text).width;ctx.fillStyle='#000c';ctx.fillRect(x1,Math.max(0,y1-25),tw+10,25);ctx.fillStyle='#fff';ctx.fillText(text,x1+5,Math.max(18,y1-7))}
+ for(const t of trackMap.values()){if(now-t.lastSeen>1800)continue;const[x1,y1,x2,y2]=t.bbox;ctx.strokeStyle=t.plate?'#49d17d':'#4db2ff';ctx.lineWidth=3;ctx.strokeRect(x1,y1,x2-x1,y2-y1);const p=plateLabel(t);const text=`#${shortId(t.id)} ${LABEL[t.label]||t.label}${p?' · '+(t.plate?'':'?')+p:''}`;ctx.font=`${Math.max(14,canvas.width/70)}px -apple-system,sans-serif`;const tw=ctx.measureText(text).width;ctx.fillStyle='#000c';ctx.fillRect(x1,Math.max(0,y1-25),tw+10,25);ctx.fillStyle='#fff';ctx.fillText(text,x1+5,Math.max(18,y1-7))}
 }
 
 function pointFromEvent(e){const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;return[Math.max(0,Math.min(1,x)),Math.max(0,Math.min(1,y))]}
 stage.addEventListener('pointerdown',e=>{if(!calMode)return;e.preventDefault();taps.push(pointFromEvent(e));if(taps.length<2){$('hint').textContent='Tap the second point.';return}if(calMode==='line'){state.line=[taps[0],taps[1]];$('hint').textContent='Gate line saved. Reverse direction if IN/OUT is backwards.'}else{state.waiting=[taps[0][0],taps[0][1],taps[1][0],taps[1][1]];$('hint').textContent='Waiting bay saved.'}calMode=null;taps=[];save()});
 
-$('start').onclick=start;$('gate').onclick=()=>{calMode='line';taps=[];$('hint').textContent='Tap two points across the vehicle path.'};$('waitZone').onclick=()=>{calMode='waiting';taps=[];$('hint').textContent='Tap opposite corners of the waiting bay.'};
-$('reverse').onclick=()=>{state.reverse=!state.reverse;save()};$('dogGuard').onclick=()=>{state.dogGuard=!state.dogGuard;save()};$('pause').onclick=()=>{state.paused=!state.paused;save()};
-$('anpr').onclick=()=>{state.anpr=!state.anpr;if(!state.anpr){anprQueue=[];anprStatus='OFF'}else{anprStatus='IDLE';if(running)connectANPR().catch(()=>{})}save()};
+$('start').onclick=start;
+$('gate').onclick=()=>{calMode='line';taps=[];$('hint').textContent='Tap two points across the vehicle path.'};
+$('waitZone').onclick=()=>{calMode='waiting';taps=[];$('hint').textContent='Tap opposite corners of the waiting bay.'};
+$('reverse').onclick=()=>{state.reverse=!state.reverse;save()};
+$('dogGuard').onclick=()=>{state.dogGuard=!state.dogGuard;save()};
+$('pause').onclick=()=>{state.paused=!state.paused;save()};
+$('anpr').onclick=()=>{state.anpr=!state.anpr;if(!state.anpr){for(const j of anprQueue)j.t.anprPending=false;anprQueue=[];anprStatus='OFF'}else{anprStatus='IDLE';if(running)connectANPR().catch(()=>{})}save()};
 $('setInside').onclick=()=>{const n=prompt('Vehicles currently inside:',String(state.inside));if(n!==null&&Number.isFinite(Number(n))&&Number(n)>=0){state.inside=Math.floor(Number(n));save()}};
-$('manualIn').onclick=()=>addEvent('IN',$('manualType').value,'MANUAL');$('manualOut').onclick=()=>addEvent('OUT',$('manualType').value,'MANUAL');
+$('manualIn').onclick=()=>addEvent('IN',$('manualType').value,'MANUAL');
+$('manualOut').onclick=()=>addEvent('OUT',$('manualType').value,'MANUAL');
 $('undo').onclick=()=>{const e=state.events.shift();if(!e)return;if(e.dir==='IN'){state.inTotal=Math.max(0,state.inTotal-1);state.inside=Math.max(0,state.inside-1)}else{state.outTotal=Math.max(0,state.outTotal-1);state.inside++}save()};
 $('capture').onclick=async()=>{const t=[...trackMap.values()].filter(x=>performance.now()-x.lastSeen<1800).sort((a,b)=>area(b.bbox)-area(a.bbox))[0];if(!t){$('hint').textContent='No active vehicle to capture.';return}const c=await cropTrack(t);if(!c)return;const a=document.createElement('a');a.href=URL.createObjectURL(c.blob);a.download=`vehicle-${t.id}-${t.plate||'unresolved'}.jpg`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
-$('export').onclick=()=>{const head=['time','iso','type','direction','inside','track_id','plate','plate_confidence','source'];const rows=state.events.slice().reverse().map(e=>[e.time,e.iso,e.type,e.dir,e.inside,e.trackId||'',e.plate||'',e.plateConfidence||'',e.source||'']);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const b=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='site-gate-'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
-$('reset').onclick=()=>{if(!confirm('Reset this shift? Counts, movements and plate memory will be cleared.'))return;state={...defaults};trackMap.clear();anprQueue=[];recentHeavy=[];localStorage.removeItem('siteGateTracker');save()};
+$('export').onclick=()=>{const head=['time','iso','type','direction','inside','track_id','plate','secondary_plate','plate_confidence','secondary_confidence','source'];const rows=state.events.slice().reverse().map(e=>[e.time,e.iso,e.type,e.dir,e.inside,e.trackId||'',e.plate||'',e.plate2||'',e.plateConfidence||'',e.plate2Confidence||'',e.source||'']);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const b=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='site-gate-'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+$('reset').onclick=()=>{if(!confirm('Reset this shift? Counts, movements and plate memory will be cleared.'))return;for(const j of anprQueue)j.t.anprPending=false;state=freshDefaults();trackMap.clear();anprQueue=[];recentHeavy=[];localStorage.removeItem('siteGateTracker');save()};
 
 render();
