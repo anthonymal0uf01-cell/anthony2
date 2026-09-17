@@ -3,6 +3,7 @@ name: Site Gate v6 Check
 on:
   push:
     paths:
+      - 'site-gate-tracker/index.html'
       - 'site-gate-tracker/v6.html'
       - 'site-gate-tracker/v6.js'
       - '.github/workflows/site-gate-v6-check.yml'
@@ -23,11 +24,19 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           html = Path('site-gate-tracker/v6.html').read_text()
+          index = Path('site-gate-tracker/index.html').read_text()
           js = Path('site-gate-tracker/v6.js').read_text()
           assert 'src="./v6.js"' in html
+          assert './v6.html' in index
           for required in ['START CAMERA','ANPR: ON','LIVE VEHICLE IDENTITIES','EXPORT CSV']:
               assert required in html, required
           for required in ['YOLO26_URL','connectANPR','scheduleANPR','fuseSlot','checkCrossing']:
               assert required in js, required
           print('v6 static smoke checks passed')
           PY
+      - name: Browser dependency probes
+        run: |
+          curl --fail --location --silent --show-error --max-time 45 -o /dev/null 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js'
+          curl --fail --location --silent --show-error --max-time 45 -o /dev/null 'https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js'
+          curl --fail --location --silent --show-error --max-time 90 --range 0-1023 -o /dev/null 'https://huggingface.co/besit/yolo-onnx/resolve/main/yolo26n.onnx?download=true'
+          echo 'external runtime assets reachable'
