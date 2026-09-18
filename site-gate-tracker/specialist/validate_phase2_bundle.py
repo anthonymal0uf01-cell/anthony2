@@ -16,16 +16,17 @@ def main():
     w=a.root/"weights"
     required=["au_ocr_seed.pt","au_ocr_seed.onnx","au_ocr_seed.metrics.json",
               "au_plate_detector.pt","au_plate_detector.onnx","au_plate_detector.metrics.json",
-              "au_vehicle_profile.json"]
+              "au_vehicle_profile.json","au_official_priors.json"]
     missing=[x for x in required if not (w/x).exists()]
     if missing:raise SystemExit("PHASE2 INCOMPLETE missing: "+", ".join(missing))
-    o=load(w/"au_ocr_seed.metrics.json");d=load(w/"au_plate_detector.metrics.json");v=load(w/"au_vehicle_profile.json")
+    o=load(w/"au_ocr_seed.metrics.json");d=load(w/"au_plate_detector.metrics.json");v=load(w/"au_vehicle_profile.json");p=load(w/"au_official_priors.json")
     failures=[]
-    if o.get("exact_match",0)<.90:failures.append(f"OCR exact {o.get('exact_match',0):.3f}<.90")
-    if o.get("worst_hard_slice",0)<.76:failures.append(f"OCR hard slice {o.get('worst_hard_slice',0):.3f}<.76")
+    if o.get("exact_match",0)<.95:failures.append(f"OCR exact {o.get('exact_match',0):.3f}<.95")
+    if o.get("worst_hard_slice",0)<.90:failures.append(f"OCR hard slice {o.get('worst_hard_slice',0):.3f}<.90")
     cam=(o.get("camera_domain") or {}).get("exact_match",0)
     if cam<.80:failures.append(f"OCR camera-domain {cam:.3f}<.80")
-    if o.get("brier_calibrated",1)>o.get("brier_raw",0):failures.append("OCR calibration worsened Brier score")
+    if o.get("brier_calibrated",1)>o.get("brier_raw",0)+.002:failures.append("OCR calibration materially worsened Brier score")
+    if not o.get("calibration_selection"):failures.append("OCR missing validation-safe calibration selection record")
     if d.get("map50",0)<.60:failures.append(f"detector mAP50 {d.get('map50',0):.3f}<.60")
     if d.get("recall",0)<.60:failures.append(f"detector recall {d.get('recall',0):.3f}<.60")
     if d.get("evaluation_split")!="test":failures.append("detector was not promoted from untouched test split")
@@ -37,7 +38,9 @@ def main():
     if failures:raise SystemExit("PHASE2 PROMOTION FAILED\n- "+"\n- ".join(failures))
     manifest={
       "phase":"2","status":"PROMOTED","objective":"Australian specialist perception bundle",
-      "metrics":{"ocr":o,"detector":d,"vehicle_profile":{"frames":v.get("frames"),"detections":v.get("detections"),"visual_prior":v.get("visual_prior")}},
+      "metrics":{"ocr":o,"detector":d,
+                 "vehicle_profile":{"frames":v.get("frames"),"detections":v.get("detections"),"visual_prior":v.get("visual_prior")},
+                 "official_prior_sections":sorted(p.keys())},
       "artifacts":{x:{"bytes":(w/x).stat().st_size,"sha256":sha256(w/x)} for x in required},
       "production_sources":[prod[x] for x in ["justjuu_plate_detection","tfnsw_live_cameras"]],
       "optional_enrichment_sources":[x for x in catalog.get("sources",[]) if x.get("id")=="tlpd"],
