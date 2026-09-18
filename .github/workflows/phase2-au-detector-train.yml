@@ -1,6 +1,12 @@
 name: Phase 2 AU Detector Train
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/export_hf_plate_detection_yolo.py'
+      - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
+      - 'site-gate-tracker/specialist/phase2_train_au_plate_detector.py'
+      - '.github/workflows/phase2-au-detector-train.yml'
 permissions:
   contents: write
 jobs:
