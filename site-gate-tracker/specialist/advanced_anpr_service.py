@@ -332,6 +332,43 @@ def uncertainty(logp: torch.Tensor) -> tuple[float, float]:
     return float(ent), float(margin)
 
 
+def _edit_distance(a: str, b: str) -> int:
+    a,b=norm_plate(a),norm_plate(b)
+    d=list(range(len(b)+1))
+    for i,x in enumerate(a,1):
+        nd=[i]
+        for j,y in enumerate(b,1):
+            nd.append(min(nd[-1]+1,d[j]+1,d[j-1]+(x!=y)))
+        d=nd
+    return d[-1]
+
+
+def arbitrate_recognizers(
+    svtr_text: str, svtr_conf: float, svtr_entropy: float,
+    au_text: str, au_conf: float, au_entropy: float,
+) -> dict[str, Any]:
+    s,a=norm_plate(svtr_text),norm_plate(au_text)
+    sp=au_soft_prior(s); ap=au_soft_prior(a)
+    # Agreement between independently trained branches is the strongest evidence.
+    if s and a and s==a:
+        conf=float(np.clip(0.58*svtr_conf+0.42*au_conf+0.08,0,0.995))
+        return {"text":s,"confidence":conf,"agreement":True,"source":"AU+SVTR","disagreement":False}
+
+    # One-character disagreements remain unresolved unless one branch is clearly stronger.
+    dist=_edit_distance(s,a) if s and a else 99
+    s_score=svtr_conf*(0.94+0.06*sp)*(1.0-0.28*min(1.0,svtr_entropy))
+    a_score=au_conf*(0.90+0.10*ap)*(1.0-0.34*min(1.0,au_entropy))
+
+    if a and a_score>=0.88 and a_score>=s_score+0.12:
+        return {"text":a,"confidence":float(min(.985,a_score)),"agreement":False,"source":"AU","disagreement":bool(s)}
+    if s and s_score>=0.88 and s_score>=a_score+0.12:
+        return {"text":s,"confidence":float(min(.985,s_score)),"agreement":False,"source":"SVTR","disagreement":bool(a)}
+
+    # A close disagreement is valuable evidence, but not enough to invent certainty.
+    cand=a if a_score>s_score else s
+    return {"text":cand,"confidence":float(max(a_score,s_score)),"agreement":False,"source":"CONFLICT","disagreement":bool(s and a),"edit_distance":dist}
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -420,11 +457,25 @@ async def recognize(frames: list[UploadFile] = File(...), qualities: str = Form(
     prior = au_soft_prior(text)
     # AU structure is only a soft confidence prior. It never rewrites the decoded string.
     calibrated = float(np.clip(rec_conf * (0.91 + 0.09 * prior) * (0.72 + 0.28 * margin), 0, 0.999))
-    confirmed = len(crops) >= 3 and calibrated >= 0.80 and ent <= 0.68
+    decision = arbitrate_recognizers(text, calibrated, ent, au_seed_text, au_seed_conf, au_seed_entropy)
+    final_text = decision["text"]
+    final_conf = float(decision["confidence"])
+    # Agreement can confirm at a lower branch-level threshold. A single branch must be
+    # exceptionally strong. Unresolved disagreement never gets silently promoted.
+    confirmed = (
+        len(crops) >= 3 and (
+            (decision["agreement"] and final_conf >= 0.80)
+            or (decision["source"] == "AU" and final_conf >= 0.90 and au_seed_entropy <= 0.48)
+            or (decision["source"] == "SVTR" and final_conf >= 0.90 and ent <= 0.60)
+        )
+    )
 
     return {
-        "text": text,
-        "confidence": calibrated,
+        "text": final_text,
+        "confidence": final_conf,
+        "decision_source": decision["source"],
+        "recognizer_agreement": decision["agreement"],
+        "recognizer_disagreement": decision["disagreement"],
         "au_seed_text": au_seed_text,
         "au_seed_confidence": au_seed_conf,
         "au_seed_entropy": au_seed_entropy,
