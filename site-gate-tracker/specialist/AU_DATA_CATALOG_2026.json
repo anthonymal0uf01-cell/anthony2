@@ -8,6 +8,44 @@
   },
   "sources": [
     {
+      "id": "ccpd_plate_pretrain",
+      "name": "CCPD License Plate Localization Backbone Pretraining Corpus",
+      "url": "https://huggingface.co/datasets/thundarstrom/ccpd-license-plate-pretrain",
+      "role": [
+        "optional_plate_detection_pretraining"
+      ],
+      "images": 20000,
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok_optional_pretrain",
+      "notes": "Backbone/localisation warm-up only. Maintainer explicitly warns against final geographic fine-tuning; currently not required for Phase 2 promotion because justjuu + TLPD provide the generic stage."
+    },
+    {
+      "id": "justjuu_plate_detection",
+      "name": "justjuu/license-plate-detection",
+      "url": "https://huggingface.co/datasets/justjuu/license-plate-detection",
+      "role": [
+        "plate_detection_pretraining",
+        "generic_localisation"
+      ],
+      "images": 8823,
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok_pretrain_only",
+      "notes": "Single-class plate boxes. Production-compatible generic localisation warm-up; never defines Australian OCR grammar."
+    },
+    {
+      "id": "tlpd",
+      "name": "TLPD: Taiwan License Plate Dataset",
+      "url": "https://huggingface.co/datasets/evan6007/TLPD",
+      "role": [
+        "plate_detection_pretraining",
+        "polygon_localisation"
+      ],
+      "images": 3032,
+      "license": "MIT",
+      "policy": "commercial_ok_pretrain_only",
+      "notes": "Expert polygon plate labels. Used for generic localisation warm-up only; Australian adaptation follows so foreign plate shape is not the final domain."
+    },
+    {
       "id": "roboflow_au_nsw_white",
       "name": "AU-NSW-WHITE",
       "url": "https://universe.roboflow.com/alpr-dld41/au-nsw-white",
@@ -48,17 +86,18 @@
     },
     {
       "id": "tfnsw_live_cameras",
-      "name": "TfNSW Live Traffic Cameras",
-      "url": "https://data.nsw.gov.au/data/dataset/2-live-traffic-cameras",
+      "name": "Live Traffic NSW camera GeoJSON + JPEG frames",
+      "url": "https://data.livetraffic.com/cameras/traffic-cam.json",
       "role": [
         "vehicle_domain",
         "weather",
         "night",
-        "nsw_context"
+        "nsw_context",
+        "camera_domain_adaptation"
       ],
       "license": "Creative Commons Attribution",
       "policy": "commercial_ok_with_plate_mask",
-      "notes": "Current camera image URLs + GPS/view metadata. Use for vehicle/context learning; mask plates before retaining training images."
+      "notes": "Public GeoJSON advertises current NSW camera metadata and JPEG hrefs. Use original frames only as road/vehicle domain data; generated plate overlays carry their own synthetic labels. Do not treat visible real registration text as OCR ground truth."
     },
     {
       "id": "nsw_heavy_config_2026",
