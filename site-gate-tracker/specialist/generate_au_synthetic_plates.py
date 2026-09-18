@@ -91,6 +91,18 @@ def degrade(im:Image.Image)->tuple[Image.Image,list[str]]:
         im=perspective(im);tags.append("oblique")
     if random.random()<.6:
         radius=random.uniform(.2,2.3);im=im.filter(ImageFilter.GaussianBlur(radius));tags.append("blur")
+    # Directional motion smear from a moving truck/camera, distinct from defocus blur.
+    if random.random()<.30:
+        k=random.choice([3,5,7,9])
+        kernel=[0.0]*(k*k)
+        horizontal=random.random()<.72
+        if horizontal:
+            row=k//2
+            for x in range(k): kernel[row*k+x]=1.0/k
+        else:
+            col=k//2
+            for y in range(k): kernel[y*k+col]=1.0/k
+        im=im.filter(ImageFilter.Kernel((k,k),kernel,scale=1.0));tags.append("motion_blur")
     if random.random()<.45:
         b=random.uniform(.25,.85);im=ImageEnhance.Brightness(im).enhance(b);tags.append("dark")
     if random.random()<.35:
@@ -107,6 +119,24 @@ def degrade(im:Image.Image)->tuple[Image.Image,list[str]]:
             x=random.randint(0,w);y=random.randint(0,h);rx=random.randint(2,max(3,w//20));ry=random.randint(1,max(2,h//15))
             d.ellipse((x-rx,y-ry,x+rx,y+ry),fill=(80,55,30,random.randint(15,75)))
         tags.append("dirt")
+    if random.random()<.28:
+        d=ImageDraw.Draw(im,"RGBA");w,h=im.size
+        for _ in range(random.randint(5,18)):
+            x=random.randint(-10,w);y=random.randint(-5,h);ln=random.randint(max(4,h//12),max(7,h//3))
+            d.line((x,y,x+random.randint(-2,5),y+ln),fill=(210,225,235,random.randint(35,110)),width=random.randint(1,2))
+        tags.append("rain")
+    if random.random()<.22:
+        d=ImageDraw.Draw(im,"RGBA");w,h=im.size
+        side=random.choice([-1,1]);cx=int(w*(.08 if side<0 else .92));cy=random.randint(int(h*.2),int(h*.8))
+        rx=random.randint(max(8,w//10),max(12,w//4));ry=random.randint(max(6,h//5),max(10,h//2))
+        d.ellipse((cx-rx,cy-ry,cx+rx,cy+ry),fill=(255,250,220,random.randint(35,105)))
+        im=im.filter(ImageFilter.GaussianBlur(random.uniform(.3,1.0)));tags.append("headlight_bloom")
+    if random.random()<.20:
+        d=ImageDraw.Draw(im,"RGBA");w,h=im.size
+        ow=random.randint(max(5,w//20),max(8,w//7));oh=random.randint(max(4,h//10),max(7,h//3))
+        x=random.randint(0,max(0,w-ow));y=random.randint(0,max(0,h-oh))
+        d.rounded_rectangle((x,y,x+ow,y+oh),radius=max(1,oh//5),fill=(55,45,34,random.randint(90,190)))
+        tags.append("partial_occlusion")
     if random.random()<.55:
         scale=random.uniform(.18,.75)
         small=im.resize((max(24,int(im.width*scale)),max(10,int(im.height*scale))),Image.Resampling.BILINEAR)
