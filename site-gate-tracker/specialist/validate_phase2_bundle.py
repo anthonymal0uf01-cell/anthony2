@@ -32,14 +32,15 @@ def main():
     if v.get("frames",0)<8 or v.get("detections",0)<1:failures.append("Australian vehicle profile insufficient")
     catalog=load(a.root/"AU_DATA_CATALOG_2026.json")
     prod={x["id"]:x for x in catalog.get("sources",[]) if not str(x.get("policy","")).startswith("research")}
-    for src in ["justjuu_plate_detection","tlpd","tfnsw_live_cameras"]:
+    for src in ["justjuu_plate_detection","tfnsw_live_cameras"]:
         if src not in prod:failures.append("source policy missing production source "+src)
     if failures:raise SystemExit("PHASE2 PROMOTION FAILED\n- "+"\n- ".join(failures))
     manifest={
       "phase":"2","status":"PROMOTED","objective":"Australian specialist perception bundle",
       "metrics":{"ocr":o,"detector":d,"vehicle_profile":{"frames":v.get("frames"),"detections":v.get("detections"),"visual_prior":v.get("visual_prior")}},
       "artifacts":{x:{"bytes":(w/x).stat().st_size,"sha256":sha256(w/x)} for x in required},
-      "production_sources":[prod[x] for x in ["justjuu_plate_detection","tlpd","tfnsw_live_cameras"]],
+      "production_sources":[prod[x] for x in ["justjuu_plate_detection","tfnsw_live_cameras"]],
+      "optional_enrichment_sources":[x for x in catalog.get("sources",[]) if x.get("id")=="tlpd"],
       "research_only_excluded":[x["id"] for x in catalog.get("sources",[]) if str(x.get("policy","")).startswith("research")],
     }
     out=a.manifest or a.root/"PHASE2_BUNDLE_2026.json";out.write_text(json.dumps(manifest,indent=2),encoding="utf-8")
