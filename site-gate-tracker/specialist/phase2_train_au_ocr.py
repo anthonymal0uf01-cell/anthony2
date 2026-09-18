@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset, ConcatDataset
 
 ALPHABET="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 BLANK=0
@@ -158,6 +158,8 @@ def main():
     ap.add_argument("--adapt-dataset",type=Path,default=None)
     ap.add_argument("--adapt-epochs",type=int,default=2)
     ap.add_argument("--min-adapt-exact",type=float,default=.78)
+    ap.add_argument("--adapt-synth-ratio",type=float,default=1.5)
+    ap.add_argument("--adapt-lr-mult",type=float,default=.06)
     args=ap.parse_args()
     torch.manual_seed(1404);random.seed(1404);np.random.seed(1404)
     torch.set_num_threads(max(1,min(4,torch.get_num_threads())))
@@ -171,6 +173,7 @@ def main():
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model=TinyAUOCR().to(device)
     opt=torch.optim.AdamW(model.parameters(),lr=args.lr,weight_decay=1e-4)
+    sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,T_max=max(1,args.epochs),eta_min=args.lr*.08)
     ctc=nn.CTCLoss(blank=BLANK,zero_infinity=True)
     best=(-1,None,None)
     args.out.mkdir(parents=True,exist_ok=True)
@@ -185,8 +188,9 @@ def main():
             opt.zero_grad(set_to_none=True);loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(),5.0);opt.step()
             loss_sum+=float(loss.detach());steps+=1
+        sched.step()
         metrics,_=eval_model(model,val,device)
-        metrics.update(epoch=epoch,train_loss=loss_sum/max(1,steps))
+        metrics.update(epoch=epoch,train_loss=loss_sum/max(1,steps),lr=float(opt.param_groups[0]["lr"]))
         print(json.dumps(metrics),flush=True)
         if metrics["exact_match"]>best[0]:
             state={k:v.detach().cpu() for k,v in model.state_dict().items()}
@@ -201,20 +205,41 @@ def main():
         ava=PlateDataset(args.adapt_dataset,args.adapt_dataset/"rec_gt_val.txt")
         atest_gt=args.adapt_dataset/"rec_gt_test.txt"
         ate=PlateDataset(args.adapt_dataset,atest_gt if atest_gt.exists() else args.adapt_dataset/"rec_gt_val.txt")
-        adl=DataLoader(atr,batch_size=args.batch,shuffle=True,num_workers=2,collate_fn=collate,persistent_workers=True)
+        # Replay synthetic examples while adapting so Australian camera-domain tuning
+        # cannot erase the general plate grammar learned in stage 1.
+        rr=random.Random(260918)
+        synth_n=min(len(tr),max(len(atr),int(len(atr)*args.adapt_synth_ratio)))
+        synth_idx=rr.sample(range(len(tr)),synth_n)
+        replay=Subset(tr,synth_idx)
+        mixed=ConcatDataset([atr,atr,replay])
+        adl=DataLoader(mixed,batch_size=args.batch,shuffle=True,num_workers=2,collate_fn=collate,persistent_workers=True)
         avl=DataLoader(ava,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
         atl=DataLoader(ate,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
-        opt=torch.optim.AdamW(model.parameters(),lr=args.lr*.22,weight_decay=1e-4)
+        opt=torch.optim.AdamW(model.parameters(),lr=args.lr*args.adapt_lr_mult,weight_decay=1e-4)
+        asched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,T_max=max(1,args.adapt_epochs),eta_min=args.lr*.01)
+        best_adapt=(-1.0,None,None)
         for epoch in range(1,args.adapt_epochs+1):
-            model.train()
+            model.train();aloss=0.0;asteps=0
             for x,y,yl,_,_ in adl:
                 x=x.to(device);y=y.to(device);yl=yl.to(device);logits=model(x)
                 il=torch.full((x.shape[0],),logits.shape[1],dtype=torch.long,device=device)
                 loss=ctc(logits.log_softmax(-1).transpose(0,1),y,il,yl)
                 opt.zero_grad(set_to_none=True);loss.backward();nn.utils.clip_grad_norm_(model.parameters(),5.0);opt.step()
+                aloss+=float(loss.detach());asteps+=1
+            asched.step()
             am,_=eval_model(model,avl,device)
-            adapt_metrics_final=am
-            print(json.dumps({"adapt_epoch":epoch,**am}),flush=True)
+            sm,_=eval_model(model,val,device)
+            # Harmonic mean punishes a checkpoint that improves one domain by destroying the other.
+            comb=(2*am["exact_match"]*sm["exact_match"]/
+                  max(1e-9,am["exact_match"]+sm["exact_match"]))
+            print(json.dumps({"adapt_epoch":epoch,"camera_exact":am["exact_match"],
+                "synthetic_exact":sm["exact_match"],"combined":comb,
+                "train_loss":aloss/max(1,asteps),"lr":float(opt.param_groups[0]["lr"])},flush=True)
+            if comb>best_adapt[0]:
+                ast={k:v.detach().cpu() for k,v in model.state_dict().items()}
+                best_adapt=(comb,ast,{"camera_val":am,"synthetic_val":sm})
+        if best_adapt[1] is not None:
+            model.load_state_dict(best_adapt[1])
         adapt_metrics_final,_=eval_model(model,atl,device)
 
     # Fit reliability bins on validation only, then report final metrics on untouched test.
