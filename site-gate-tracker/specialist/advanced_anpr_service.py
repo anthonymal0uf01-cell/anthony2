@@ -19,6 +19,7 @@ from tools.infer_e2e import OpenOCRE2E
 APP_DIR = Path(__file__).resolve().parent
 MAMBAIR_HOME = Path(os.getenv("MAMBAIR_HOME", APP_DIR / ".vendor" / "MambaIR"))
 MAMBAIR_WEIGHTS = Path(os.getenv("MAMBAIR_WEIGHTS", APP_DIR / "weights" / "mambairv2_classicSR_Small_x4.pth"))
+AU_PLATE_WEIGHTS = Path(os.getenv("AU_PLATE_WEIGHTS", APP_DIR / "weights" / "au_plate_detector.pt"))
 
 app = FastAPI(title="Gate Specialist ANPR v7", version="7.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -98,6 +99,48 @@ def quality_weight(q: dict[str, Any] | None, detector_score: float) -> float:
     exposure = max(0.2, 1.0 - abs(brightness - 0.5) * 1.25)
     image_q = np.clip(0.30 + 0.45 * sharp + 0.15 * exposure - 0.30 * glare - 0.25 * dark, 0.08, 1.0)
     return float(np.clip(image_q * (0.45 + 0.55 * detector_score), 0.05, 1.0))
+
+
+class AUPlateDetector:
+    def __init__(self) -> None:
+        self.model = None
+        self.error = None
+        try:
+            if not AU_PLATE_WEIGHTS.exists():
+                raise FileNotFoundError("Australian plate detector weights not installed")
+            from ultralytics import YOLO
+            self.model = YOLO(str(AU_PLATE_WEIGHTS))
+        except Exception as e:
+            self.error = str(e)
+
+    @property
+    def ready(self) -> bool:
+        return self.model is not None
+
+    def detect(self, bgr: np.ndarray) -> list[dict[str, Any]]:
+        if self.model is None:
+            return []
+        result = self.model.predict(source=bgr, imgsz=960, conf=0.18, iou=0.55, verbose=False)[0]
+        out=[]
+        if result.boxes is None:
+            return out
+        xyxy=result.boxes.xyxy.detach().cpu().numpy()
+        conf=result.boxes.conf.detach().cpu().numpy()
+        for box,score in zip(xyxy,conf):
+            x1,y1,x2,y2=[float(x) for x in box]
+            if x2-x1 < 18 or y2-y1 < 7:
+                continue
+            out.append({"bbox":[x1,y1,x2,y2],"score":float(score)})
+        return sorted(out,key=lambda x:x["score"],reverse=True)
+
+    @staticmethod
+    def crop(img: np.ndarray, box: list[float]) -> np.ndarray:
+        h,w=img.shape[:2]
+        x1,y1,x2,y2=box
+        pw=max(2,int((x2-x1)*0.06)); ph=max(2,int((y2-y1)*0.10))
+        x1=max(0,int(x1)-pw); y1=max(0,int(y1)-ph)
+        x2=min(w,int(x2)+pw); y2=min(h,int(y2)+ph)
+        return img[y1:y2,x1:x2].copy()
 
 
 class MambaIRv2Restorer:
@@ -189,6 +232,7 @@ class SVTRLogitEngine:
         return norm_plate(result[0]), float(result[1])
 
 
+plate_detector = AUPlateDetector()
 restorer = MambaIRv2Restorer()
 svtr = SVTRLogitEngine()
 e2e = OpenOCRE2E(mode="mobile", backend="onnx", drop_score=0.10, det_box_type="quad", use_gpu="auto")
@@ -213,6 +257,8 @@ def health() -> dict[str, Any]:
     return {
         "ok": True,
         "svtrv2": True,
+        "au_plate_detector": plate_detector.ready,
+        "au_plate_detector_error": plate_detector.error,
         "mambairv2": restorer.ready,
         "mambairv2_error": restorer.error,
         "device": str(svtr.device),
@@ -226,22 +272,36 @@ async def recognize(frames: list[UploadFile] = File(...), qualities: str = Form(
     if len(raw_frames) < 2:
         return {"text":"", "confidence":0.0, "entropy":1.0, "status":"UNRESOLVED", "reason":"need multiple frames"}
 
-    # 1) locate plate-like text regions in each frame, then rectify them.
-    detected, _ = e2e(img_numpy_list=raw_frames, is_visualize=False, crop_infer=True, rec_batch_num=4)
+    # 1) locate the plate in each frame. Prefer the Australian detector trained
+    # on Australian plate boxes. Generic OCR text detection is fallback only.
     crops, weights, detector_text = [], [], []
-    for i, (img, items) in enumerate(zip(raw_frames, detected or [])):
-        if not items:
-            continue
-        ranked = sorted(items, key=lambda it: plate_box_score(it, img.shape), reverse=True)
-        best = ranked[0]
-        if plate_box_score(best, img.shape) < 0.15:
-            continue
-        crop = rectify(img, best["points"])
-        if crop.shape[0] < 8 or crop.shape[1] < 20:
-            continue
-        crops.append(crop)
-        weights.append(quality_weight(qlist[i] if i < len(qlist) else None, float(best.get("score", 0.5))))
-        detector_text.append(norm_plate(best.get("transcription", "")))
+    if plate_detector.ready:
+        for i, img in enumerate(raw_frames):
+            items=plate_detector.detect(img)
+            if not items:
+                continue
+            best=items[0]
+            crop=plate_detector.crop(img,best["bbox"])
+            if crop.shape[0] < 8 or crop.shape[1] < 20:
+                continue
+            crops.append(crop)
+            weights.append(quality_weight(qlist[i] if i < len(qlist) else None,float(best["score"])))
+            detector_text.append("")
+    else:
+        detected, _ = e2e(img_numpy_list=raw_frames, is_visualize=False, crop_infer=True, rec_batch_num=4)
+        for i, (img, items) in enumerate(zip(raw_frames, detected or [])):
+            if not items:
+                continue
+            ranked = sorted(items, key=lambda it: plate_box_score(it, img.shape), reverse=True)
+            best = ranked[0]
+            if plate_box_score(best, img.shape) < 0.15:
+                continue
+            crop = rectify(img, best["points"])
+            if crop.shape[0] < 8 or crop.shape[1] < 20:
+                continue
+            crops.append(crop)
+            weights.append(quality_weight(qlist[i] if i < len(qlist) else None, float(best.get("score", 0.5))))
+            detector_text.append(norm_plate(best.get("transcription", "")))
 
     if len(crops) < 2:
         return {"text":"", "confidence":0.0, "entropy":1.0, "status":"UNRESOLVED", "reason":"plate region not stable across frames", "detector_text":detector_text}
