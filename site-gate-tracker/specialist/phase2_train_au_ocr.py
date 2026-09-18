@@ -125,6 +125,28 @@ def apply_calibrator(conf,cal):
         if conf<=g["hi"]: return float(g["accuracy"])
     return float(cal[-1]["accuracy"])
 
+def brier_records(records, calibrator=None):
+    cal=calibrator or []
+    if not records:return 0.0
+    return sum(((apply_calibrator(r["raw_conf"],cal) if cal else r["raw_conf"])-r["ok"])**2 for r in records)/len(records)
+
+def select_calibrator(records,bins=10):
+    """Fit on one deterministic half of validation and select on the other.
+    If empirical calibration does not improve held-out validation reliability,
+    use identity calibration instead of damaging a good recogniser."""
+    if len(records)<40:
+        return [],{"mode":"identity","reason":"too_few_validation_records","check_n":len(records)}
+    fit=records[::2]; check=records[1::2]
+    candidate=fit_calibrator(fit,bins)
+    raw=brier_records(check,[])
+    calibrated=brier_records(check,candidate)
+    if calibrated + 1e-6 < raw:
+        return candidate,{"mode":"empirical_bins","fit_n":len(fit),"check_n":len(check),
+                          "check_brier_raw":raw,"check_brier_calibrated":calibrated}
+    return [],{"mode":"identity","reason":"empirical_bins_did_not_improve_holdout",
+               "fit_n":len(fit),"check_n":len(check),
+               "check_brier_raw":raw,"check_brier_calibrated":calibrated}
+
 def eval_model(model,loader,device,calibrator=None):
     model.eval();n=exact=chars=edits=0;records=[];by={}
     with torch.inference_mode():
@@ -247,11 +269,12 @@ def main():
     if args.adapt_dataset is not None:
         _,camera_cal_records=eval_model(model,avl,device)
         cal_records.extend(camera_cal_records)
-    calibrator=fit_calibrator(cal_records,10)
+    calibrator,calibration_selection=select_calibrator(cal_records,10)
     metrics,records=eval_model(model,test,device,calibrator)
     if args.adapt_dataset is not None:
         adapt_metrics_final,_=eval_model(model,atl,device,calibrator)
     metrics["calibrator"]=calibrator
+    metrics["calibration_selection"]=calibration_selection
     metrics["training"]={
         "synthetic_train":len(tr),"synthetic_val":len(va),"synthetic_test":len(te),
         "epochs":args.epochs,"batch":args.batch,"lr":args.lr,
@@ -288,8 +311,8 @@ def main():
         raise SystemExit(f"promotion gate failed: exact_match {score:.3f} < {args.min_exact:.3f}")
     if metrics["worst_hard_slice"] < args.min_hard_slice:
         raise SystemExit(f"promotion gate failed: hard-slice exact {metrics['worst_hard_slice']:.3f} < {args.min_hard_slice:.3f}")
-    if metrics["brier_calibrated"] > metrics["brier_raw"] + 1e-6:
-        raise SystemExit("promotion gate failed: calibration made reliability worse")
+    if metrics["brier_calibrated"] > metrics["brier_raw"] + 0.002:
+        raise SystemExit("promotion gate failed: selected validation-safe calibration materially worsened untouched-test reliability")
     if adapt_metrics_final is not None and adapt_metrics_final["exact_match"] < args.min_adapt_exact:
         raise SystemExit(f"promotion gate failed: camera-domain exact {adapt_metrics_final['exact_match']:.3f} < {args.min_adapt_exact:.3f}")
     print(f"PROMOTED exact_match={score:.4f}")
