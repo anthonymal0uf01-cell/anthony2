@@ -31,7 +31,7 @@ jobs:
         run: |
           mkdir -p site-gate-tracker/specialist/weights
           cp /tmp/phase2_weights/au_ocr_seed.pt site-gate-tracker/specialist/weights/
-          cp /tmp/phase2_weights/au_ocr_seed.onnx site-gate-tracker/specialist/weights/
+          test -f /tmp/phase2_weights/au_ocr_seed.onnx && cp /tmp/phase2_weights/au_ocr_seed.onnx site-gate-tracker/specialist/weights/ || true
           cp /tmp/phase2_weights/metrics.json site-gate-tracker/specialist/weights/au_ocr_seed.metrics.json
           git config user.name github-actions
           git config user.email github-actions@github.com
