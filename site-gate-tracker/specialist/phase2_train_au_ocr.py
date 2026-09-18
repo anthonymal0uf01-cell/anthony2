@@ -132,8 +132,13 @@ def main():
     ckpt={"state_dict":state,"alphabet":ALPHABET,"input_width":160,"input_height":48,"metrics":metrics,"model":"TinyAUOCR-v1"}
     torch.save(ckpt,args.out/"au_ocr_seed.pt")
     model.eval()
-    dummy=torch.zeros(1,1,48,160)
-    torch.onnx.export(model,dummy,args.out/"au_ocr_seed.onnx",input_names=["image"],output_names=["logits"],dynamic_axes={"image":{0:"batch"},"logits":{0:"batch"}},opset_version=17,dynamo=False)
+    # PyTorch checkpoint is the Phase-2 promotion artifact. ONNX is optional;
+    # export incompatibilities must never discard a successfully trained model.
+    try:
+        dummy=torch.zeros(1,1,48,160)
+        torch.onnx.export(model,dummy,args.out/"au_ocr_seed.onnx",input_names=["image"],output_names=["logits"],opset_version=17,dynamo=False)
+    except Exception as e:
+        print(f"ONNX_OPTIONAL_EXPORT_FAILED: {e}", flush=True)
     (args.out/"metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
     (args.out/"README.txt").write_text(
         "Australian OCR seed trained from NSW/NHV synthetic curriculum.\n"
