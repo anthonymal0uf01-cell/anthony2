@@ -20,6 +20,7 @@ APP_DIR = Path(__file__).resolve().parent
 MAMBAIR_HOME = Path(os.getenv("MAMBAIR_HOME", APP_DIR / ".vendor" / "MambaIR"))
 MAMBAIR_WEIGHTS = Path(os.getenv("MAMBAIR_WEIGHTS", APP_DIR / "weights" / "mambairv2_classicSR_Small_x4.pth"))
 AU_PLATE_WEIGHTS = Path(os.getenv("AU_PLATE_WEIGHTS", APP_DIR / "weights" / "au_plate_detector.pt"))
+AU_OCR_SEED_WEIGHTS = Path(os.getenv("AU_OCR_SEED_WEIGHTS", APP_DIR / "weights" / "au_ocr_seed.pt"))
 
 app = FastAPI(title="Gate Specialist ANPR v7", version="7.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -99,6 +100,84 @@ def quality_weight(q: dict[str, Any] | None, detector_score: float) -> float:
     exposure = max(0.2, 1.0 - abs(brightness - 0.5) * 1.25)
     image_q = np.clip(0.30 + 0.45 * sharp + 0.15 * exposure - 0.30 * glare - 0.25 * dark, 0.08, 1.0)
     return float(np.clip(image_q * (0.45 + 0.55 * detector_score), 0.05, 1.0))
+
+
+class _TinyAUOCRNet(torch.nn.Module):
+    def __init__(self, nclass: int = 37) -> None:
+        super().__init__()
+        self.cnn = torch.nn.Sequential(
+            torch.nn.Conv2d(1,24,3,1,1), torch.nn.BatchNorm2d(24), torch.nn.SiLU(), torch.nn.MaxPool2d(2,2),
+            torch.nn.Conv2d(24,48,3,1,1), torch.nn.BatchNorm2d(48), torch.nn.SiLU(), torch.nn.MaxPool2d(2,2),
+            torch.nn.Conv2d(48,72,3,1,1), torch.nn.BatchNorm2d(72), torch.nn.SiLU(), torch.nn.MaxPool2d((2,1),(2,1)),
+            torch.nn.Conv2d(72,96,3,1,1), torch.nn.BatchNorm2d(96), torch.nn.SiLU(), torch.nn.MaxPool2d((2,1),(2,1)),
+            torch.nn.AdaptiveAvgPool2d((1,None)),
+        )
+        self.rnn = torch.nn.GRU(96,64,num_layers=1,bidirectional=True,batch_first=True)
+        self.fc = torch.nn.Linear(128,nclass)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z=self.cnn(x).squeeze(2).permute(0,2,1)
+        z,_=self.rnn(z)
+        return self.fc(z)
+
+
+class TinyAUOCRRuntime:
+    def __init__(self) -> None:
+        self.model = None
+        self.error = None
+        self.alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        try:
+            if not AU_OCR_SEED_WEIGHTS.exists():
+                raise FileNotFoundError("Phase-2 Australian OCR seed weights not installed")
+            ckpt=torch.load(AU_OCR_SEED_WEIGHTS,map_location="cpu")
+            alphabet=ckpt.get("alphabet",self.alphabet)
+            if alphabet != self.alphabet:
+                raise RuntimeError("unexpected Phase-2 alphabet")
+            model=_TinyAUOCRNet(len(self.alphabet)+1)
+            model.load_state_dict(ckpt["state_dict"],strict=True)
+            model.eval().to(self.device)
+            self.model=model
+            self.metrics=ckpt.get("metrics",{})
+        except Exception as e:
+            self.error=str(e)
+            self.metrics={}
+
+    @property
+    def ready(self) -> bool:
+        return self.model is not None
+
+    def _prep(self, bgr: np.ndarray) -> torch.Tensor:
+        gray=cv2.cvtColor(bgr,cv2.COLOR_BGR2GRAY)
+        h,w=gray.shape[:2]
+        scale=min(160/max(1,w),48/max(1,h))
+        nw=max(1,int(round(w*scale))); nh=max(1,int(round(h*scale)))
+        im=cv2.resize(gray,(nw,nh),interpolation=cv2.INTER_AREA if scale<1 else cv2.INTER_CUBIC)
+        canvas=np.full((48,160),127,dtype=np.uint8)
+        x=(160-nw)//2; y=(48-nh)//2
+        canvas[y:y+nh,x:x+nw]=im
+        arr=(canvas.astype(np.float32)/255.0-.5)/.5
+        return torch.from_numpy(arr)[None,:,:]
+
+    @torch.inference_mode()
+    def fused(self, crops: list[np.ndarray], weights: list[float]) -> tuple[str,float,float]:
+        if self.model is None or not crops:
+            return "",0.0,1.0
+        x=torch.stack([self._prep(c) for c in crops]).to(self.device)
+        logp=F.log_softmax(self.model(x).float(),dim=-1)
+        w=torch.tensor(weights,dtype=logp.dtype,device=logp.device).clamp_min(1e-4)
+        w=w/w.sum()
+        fused=(logp*w[:,None,None]).sum(0)
+        probs=fused.exp()
+        ids=probs.argmax(-1).tolist()
+        text=[]; prev=-1; used=[]
+        for t,i in enumerate(ids):
+            if i!=0 and i!=prev:
+                text.append(self.alphabet[i-1]); used.append(float(probs[t,i].item()))
+            prev=i
+        s=norm_plate("".join(text))
+        conf=float(np.prod(np.clip(used,1e-4,1.0))**(1/max(1,len(used)))) if used else 0.0
+        ent=float((-(probs.clamp_min(1e-9)*probs.clamp_min(1e-9).log()).sum(-1)/math.log(probs.shape[-1])).mean().item())
+        return s,conf,ent
 
 
 class AUPlateDetector:
@@ -232,6 +311,7 @@ class SVTRLogitEngine:
         return norm_plate(result[0]), float(result[1])
 
 
+au_seed = TinyAUOCRRuntime()
 plate_detector = AUPlateDetector()
 restorer = MambaIRv2Restorer()
 svtr = SVTRLogitEngine()
@@ -257,6 +337,9 @@ def health() -> dict[str, Any]:
     return {
         "ok": True,
         "svtrv2": True,
+        "au_ocr_seed": au_seed.ready,
+        "au_ocr_seed_error": au_seed.error,
+        "au_ocr_seed_metrics": au_seed.metrics,
         "au_plate_detector": plate_detector.ready,
         "au_plate_detector_error": plate_detector.error,
         "mambairv2": restorer.ready,
@@ -310,6 +393,10 @@ async def recognize(frames: list[UploadFile] = File(...), qualities: str = Form(
     order = np.argsort(np.asarray(weights))[::-1][:8]
     crops = [crops[i] for i in order]; weights = [weights[i] for i in order]
 
+    # Phase-2 Australian branch: the real trained NSW/NHV checkpoint fuses
+    # raw CTC probabilities across the selected frames before decoding.
+    au_seed_text, au_seed_conf, au_seed_entropy = au_seed.fused(crops, weights) if au_seed.ready else ("",0.0,1.0)
+
     # 2) direct SVTRv2 branch: raw CTC log-probabilities, fused before decoding.
     direct_logits = svtr.logits(crops)
     direct_fused = svtr.fuse(direct_logits, weights)
@@ -338,6 +425,9 @@ async def recognize(frames: list[UploadFile] = File(...), qualities: str = Form(
     return {
         "text": text,
         "confidence": calibrated,
+        "au_seed_text": au_seed_text,
+        "au_seed_confidence": au_seed_conf,
+        "au_seed_entropy": au_seed_entropy,
         "raw_recognition_confidence": rec_conf,
         "entropy": ent,
         "character_margin": margin,
