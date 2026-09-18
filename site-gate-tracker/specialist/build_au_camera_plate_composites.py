@@ -11,7 +11,14 @@ PATTERNS=["LLDDLL","LLLDDL","LLLDDD","DDDLLL","LLDDD","LLDDDD"]
 TFNSW="https://data.livetraffic.com/cameras/traffic-cam.json"
 
 def req(url,timeout=30):
-    r=urllib.request.Request(url,headers={"User-Agent":"SiteGatePhase2/2026"})
+    headers={
+        "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1",
+        "Accept":"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" if "webcams.transport.nsw.gov.au" in url else "application/json,text/plain,*/*",
+        "Referer":"https://www.livetraffic.com/",
+        "Accept-Language":"en-AU,en;q=0.9",
+        "Cache-Control":"no-cache",
+    }
+    r=urllib.request.Request(url,headers=headers)
     with urllib.request.urlopen(r,timeout=timeout) as x:return x.read()
 
 def font(sz):
