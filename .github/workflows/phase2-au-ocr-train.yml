@@ -35,6 +35,7 @@ jobs:
           cp /tmp/phase2_weights/metrics.json site-gate-tracker/specialist/weights/au_ocr_seed.metrics.json
           git config user.name github-actions
           git config user.email github-actions@github.com
+          git pull --rebase origin main
           git add site-gate-tracker/specialist/weights/
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "Train Phase 2 Australian OCR seed"
