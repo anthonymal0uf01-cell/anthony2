@@ -6,6 +6,9 @@ const VEHICLE_IDS=new Set([2,3,5,7]);
 const CLASS_NAME={2:'car',3:'motorcycle',5:'bus',7:'truck'};
 const LABEL={car:'Light Vehicle',motorcycle:'Motorcycle',bus:'Bus',truck:'Heavy Vehicle'};
 const YOLO26_URL='https://huggingface.co/besit/yolo-onnx/resolve/main/yolo26n.onnx?download=true';
+const AU_VEHICLE_PROFILE_URL='./specialist/weights/au_vehicle_profile.json';
+const AU_CLASS_KEY={2:'light_vehicle',3:'motorcycle',5:'bus',7:'heavy_vehicle'};
+let auVehicleProfile=null,auThreshold={2:.24,3:.24,5:.24,7:.24};
 const ANPR_SPACE='Rickkosse/license-plate-detector';
 const SESSION_ID=Date.now().toString(36).slice(-6).toUpperCase();
 const freshDefaults=()=>({version:6,inside:0,inTotal:0,outTotal:0,events:[],line:null,waiting:null,reverse:false,dogGuard:true,paused:false,anpr:true});
@@ -49,6 +52,17 @@ async function keepAwake(){try{if('wakeLock'in navigator)wakeLock=await navigato
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running)keepAwake()});
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
 
+async function loadAUVehicleProfile(){
+ try{
+   const r=await fetch(AU_VEHICLE_PROFILE_URL,{cache:'no-store'});
+   if(!r.ok)return;
+   const p=await r.json();auVehicleProfile=p;
+   for(const [id,key] of Object.entries(AU_CLASS_KEY)){
+     const q=p?.geometry?.[key]?.confidence?.p10;
+     if(Number.isFinite(q))auThreshold[id]=Math.max(.18,Math.min(.36,q*.88));
+   }
+ }catch(e){console.warn('AU vehicle profile unavailable; using baseline thresholds',e)}
+}
 async function loadYOLO26(){
  if(!window.ort)throw new Error('ONNX Runtime unavailable');
  try{ort.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/'}catch{}
@@ -65,10 +79,10 @@ async function loadYOLO26(){
    const feeds={[inputName]:new ort.Tensor('float32',x,[1,3,640,640])},out=await session.run(feeds),o=out[outputName]||out[Object.keys(out)[0]],data=o.data,dims=o.dims||[];
    if(data.length%6!==0||!(dims[dims.length-1]===6||data.length<=6000))throw new Error('Unexpected YOLO26 output '+dims.join('x'));
    const rows=[],count=data.length/6;
-   for(let i=0;i<count;i++){const k=i*6;let x1=Number(data[k]),y1=Number(data[k+1]),x2=Number(data[k+2]),y2=Number(data[k+3]),score=Number(data[k+4]),cls=Math.round(Number(data[k+5]));if(!VEHICLE_IDS.has(cls)||score<.24)continue;if(Math.max(x1,y1,x2,y2)<=2){x1*=640;y1*=640;x2*=640;y2*=640}x1=(x1-px)/scale;y1=(y1-py)/scale;x2=(x2-px)/scale;y2=(y2-py)/scale;rows.push({name:CLASS_NAME[cls],score,bbox:[Math.max(0,x1),Math.max(0,y1),Math.min(w,x2),Math.min(h,y2)]})}
+   for(let i=0;i<count;i++){const k=i*6;let x1=Number(data[k]),y1=Number(data[k+1]),x2=Number(data[k+2]),y2=Number(data[k+3]),score=Number(data[k+4]),cls=Math.round(Number(data[k+5]));if(!VEHICLE_IDS.has(cls)||score<(auThreshold[cls]??.24))continue;if(Math.max(x1,y1,x2,y2)<=2){x1*=640;y1*=640;x2*=640;y2*=640}x1=(x1-px)/scale;y1=(y1-py)/scale;x2=(x2-px)/scale;y2=(y2-py)/scale;rows.push({name:CLASS_NAME[cls],score,bbox:[Math.max(0,x1),Math.max(0,y1),Math.min(w,x2),Math.min(h,y2)]})}
    return rows.filter(d=>area(d.bbox)>400);
  }};
- detectorName='YOLO26';$('status').textContent='YOLO26 local · identity fusion';render();
+ detectorName=auVehicleProfile?'YOLO26 · AU-calibrated':'YOLO26';$('status').textContent=(auVehicleProfile?'YOLO26 AU-calibrated':'YOLO26 local')+' · identity fusion';render();
 }
 
 async function loadSSD(){
@@ -79,7 +93,7 @@ async function loadSSD(){
  detector={kind:'ssd',predict:async()=>{const r=await m.detect(video,30,.32);return r.filter(x=>['car','truck','bus','motorcycle'].includes(x.class)).map(x=>({name:x.class,score:x.score,bbox:[x.bbox[0],x.bbox[1],x.bbox[0]+x.bbox[2],x.bbox[1]+x.bbox[3]]}))}};
  detectorName='SSD-FB';$('status').textContent='Fallback vision · identity fusion';render();
 }
-async function loadDetector(){try{await loadYOLO26()}catch(e){console.warn('YOLO26 unavailable',e);await loadSSD()}}
+async function loadDetector(){await loadAUVehicleProfile();try{await loadYOLO26()}catch(e){console.warn('YOLO26 unavailable',e);await loadSSD()}}
 
 async function start(){
  if(running)return;$('start').disabled=true;$('status').textContent='Requesting camera…';
