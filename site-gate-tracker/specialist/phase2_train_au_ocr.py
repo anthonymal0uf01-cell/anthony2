@@ -157,6 +157,7 @@ def main():
     ap.add_argument("--min-hard-slice",type=float,default=.70)
     ap.add_argument("--adapt-dataset",type=Path,default=None)
     ap.add_argument("--adapt-epochs",type=int,default=2)
+    ap.add_argument("--min-adapt-exact",type=float,default=.78)
     args=ap.parse_args()
     torch.manual_seed(1404);random.seed(1404);np.random.seed(1404)
     torch.set_num_threads(max(1,min(4,torch.get_num_threads())))
@@ -191,6 +192,7 @@ def main():
     model.load_state_dict(state)
 
     # Optional second stage: Australian camera-domain crops with known synthetic labels.
+    adapt_metrics_final=None
     if args.adapt_dataset is not None:
         atr=PlateDataset(args.adapt_dataset,args.adapt_dataset/"rec_gt_train.txt")
         ava=PlateDataset(args.adapt_dataset,args.adapt_dataset/"rec_gt_val.txt")
@@ -205,6 +207,7 @@ def main():
                 loss=ctc(logits.log_softmax(-1).transpose(0,1),y,il,yl)
                 opt.zero_grad(set_to_none=True);loss.backward();nn.utils.clip_grad_norm_(model.parameters(),5.0);opt.step()
             am,_=eval_model(model,avl,device)
+            adapt_metrics_final=am
             print(json.dumps({"adapt_epoch":epoch,**am}),flush=True)
 
     # Fit empirical confidence calibration on an independent held-out split.
@@ -214,6 +217,7 @@ def main():
     metrics["calibrator"]=calibrator
     hard=[v["exact_match"] for k,v in metrics["by_slice"].items() if k.startswith("cond:") and v["n"]>=25]
     metrics["worst_hard_slice"]=min(hard) if hard else metrics["exact_match"]
+    if adapt_metrics_final is not None: metrics["camera_domain"]=adapt_metrics_final
     state={k:v.detach().cpu() for k,v in model.state_dict().items()}
     score=metrics["exact_match"]
     ckpt={"state_dict":state,"alphabet":ALPHABET,"input_width":160,"input_height":48,"metrics":metrics,
@@ -239,6 +243,8 @@ def main():
         raise SystemExit(f"promotion gate failed: hard-slice exact {metrics['worst_hard_slice']:.3f} < {args.min_hard_slice:.3f}")
     if metrics["brier_calibrated"] > metrics["brier_raw"] + 1e-6:
         raise SystemExit("promotion gate failed: calibration made reliability worse")
+    if adapt_metrics_final is not None and adapt_metrics_final["exact_match"] < args.min_adapt_exact:
+        raise SystemExit(f"promotion gate failed: camera-domain exact {adapt_metrics_final['exact_match']:.3f} < {args.min_adapt_exact:.3f}")
     print(f"PROMOTED exact_match={score:.4f}")
 
 if __name__=="__main__":main()
