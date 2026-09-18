@@ -1,0 +1,25 @@
+name: Phase 2 Bundle Gate
+on:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/weights/**'
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate complete Phase 2 bundle
+        run: python site-gate-tracker/specialist/validate_phase2_bundle.py
+      - name: Publish immutable bundle manifest
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add site-gate-tracker/specialist/PHASE2_BUNDLE_2026.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Promote complete Phase 2 Australian perception bundle"
+          git push
