@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install pillow numpy onnx
+          pip install pillow numpy onnx ultralytics
       - name: Generate Australian OCR curriculum
         run: |
           python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 50000 --seed 260918 --out /tmp/au_synth
