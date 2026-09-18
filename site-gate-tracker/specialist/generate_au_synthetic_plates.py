@@ -15,7 +15,7 @@ DIGITS=string.digits
 
 NSW_PATTERNS=[
     "LLDDLL","LLLDDL","LLLDDD","LLDDD","LLDDDD",
-    "NLLDDL","NLLDDD","DDDLLL","DDLLLL","DDLLL",
+    "DDDLLL","DDLLLL","DDLLL",
 ]
 # National heavy vehicle plates use black text on white with a blue sash.
 # The public NHVR example FB23CA fits LLDDLL; generation stays deliberately broad.
@@ -56,12 +56,19 @@ def plate_base(kind:str,text:str)->Image.Image:
         bg=(245,245,238); fg=(20,20,20); sash=(25,80,155)
     else:
         bg=(244,244,238); fg=(20,20,20); sash=None
-    w,h=random.choice([(370,130),(320,140),(370,110),(375,90),(350,85)])
+    if kind=="nsw_auxiliary":
+        w,h=(252,98)
+    elif kind=="nsw_white":
+        w,h=random.choice([(370,110),(375,90),(350,85)])
+    else:
+        w,h=random.choice([(370,130),(320,140),(370,110),(375,90),(350,85)])
     im=Image.new("RGB",(w,h),bg);d=ImageDraw.Draw(im)
     d.rounded_rectangle((3,3,w-4,h-4),radius=max(5,h//14),outline=(45,45,45),width=max(2,h//45))
     if sash:
         sh=max(15,int(h*.22));d.rectangle((3,h-sh,w-4,h-4),fill=sash)
         d.text((w//2,h-sh//2),"NATIONAL HEAVY VEHICLE",anchor="mm",font=font(max(7,sh//3)),fill=(255,255,255))
+    elif kind=="nsw_auxiliary":
+        d.text((w//2,5),"NSW – AUXILIARY",anchor="ma",font=font(max(8,h//10)),fill=fg)
     else:
         d.text((w//2,8),"NSW",anchor="ma",font=font(max(9,h//8)),fill=fg)
     top=int(h*.23);bottom=int(h*(.73 if sash else .86))
@@ -114,8 +121,8 @@ def main():
     args=ap.parse_args();random.seed(args.seed);np.random.seed(args.seed)
     imgdir=args.out/"images";imgdir.mkdir(parents=True,exist_ok=True)
     rows=[]
-    kinds=["nsw_white","nsw_yellow","nhv"]
-    weights=[.48,.27,.25]
+    kinds=["nsw_white","nsw_yellow","nhv","nsw_auxiliary"]
+    weights=[.42,.25,.25,.08]
     for i in range(args.count):
         kind=random.choices(kinds,weights)[0]
         if random.random()<.12:
