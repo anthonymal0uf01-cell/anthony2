@@ -120,7 +120,7 @@ def main():
             loss=ctc(logits.log_softmax(-1).transpose(0,1),y,il,yl)
             opt.zero_grad(set_to_none=True);loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(),5.0);opt.step()
-            loss_sum+=float(loss);steps+=1
+            loss_sum+=float(loss.detach());steps+=1
         metrics=eval_model(model,val,device)
         metrics.update(epoch=epoch,train_loss=loss_sum/max(1,steps))
         print(json.dumps(metrics),flush=True)
@@ -133,7 +133,7 @@ def main():
     torch.save(ckpt,args.out/"au_ocr_seed.pt")
     model.eval()
     dummy=torch.zeros(1,1,48,160)
-    torch.onnx.export(model,dummy,args.out/"au_ocr_seed.onnx",input_names=["image"],output_names=["logits"],dynamic_axes={"image":{0:"batch"},"logits":{0:"batch"}},opset_version=17)
+    torch.onnx.export(model,dummy,args.out/"au_ocr_seed.onnx",input_names=["image"],output_names=["logits"],dynamic_axes={"image":{0:"batch"},"logits":{0:"batch"}},opset_version=17,dynamo=False)
     (args.out/"metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
     (args.out/"README.txt").write_text(
         "Australian OCR seed trained from NSW/NHV synthetic curriculum.\n"
