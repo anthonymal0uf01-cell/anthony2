@@ -1,0 +1,200 @@
+{
+  "current_as_of": "2026-09-18",
+  "rules": {
+    "commercial_training": "Only sources marked commercial_ok may enter production training automatically.",
+    "plate_privacy": "Government traffic-camera imagery is vehicle-domain data only; mask/blur plate regions before retention.",
+    "syntax_control": "Foreign plate text must never define Australian OCR grammar.",
+    "final_domain": "Corrected gate data has the highest curriculum weight."
+  },
+  "sources": [
+    {
+      "id": "roboflow_au_nsw_white",
+      "name": "AU-NSW-WHITE",
+      "url": "https://universe.roboflow.com/alpr-dld41/au-nsw-white",
+      "role": [
+        "plate_detection",
+        "nsw_domain"
+      ],
+      "images": 456,
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok",
+      "notes": "NSW white plates; object-detection boxes only."
+    },
+    {
+      "id": "roboflow_au_multistate",
+      "name": "australian-license-plates",
+      "url": "https://universe.roboflow.com/gattondieselmaker/australian-license-plates-j0eml",
+      "role": [
+        "plate_detection",
+        "au_domain"
+      ],
+      "images": 2720,
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok",
+      "notes": "ACT, NSW white, NT, SA plate classes; detection labels, not verified OCR transcriptions."
+    },
+    {
+      "id": "roboflow_au_licence_plates",
+      "name": "Licence Plates Australia",
+      "url": "https://universe.roboflow.com/licence-plate-cw5ma/licence-plates-australia",
+      "role": [
+        "plate_detection",
+        "au_domain"
+      ],
+      "images": null,
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok",
+      "notes": "Additional Australian plate detection source; audit class semantics before mixing."
+    },
+    {
+      "id": "tfnsw_live_cameras",
+      "name": "TfNSW Live Traffic Cameras",
+      "url": "https://data.nsw.gov.au/data/dataset/2-live-traffic-cameras",
+      "role": [
+        "vehicle_domain",
+        "weather",
+        "night",
+        "nsw_context"
+      ],
+      "license": "Creative Commons Attribution",
+      "policy": "commercial_ok_with_plate_mask",
+      "notes": "Current camera image URLs + GPS/view metadata. Use for vehicle/context learning; mask plates before retaining training images."
+    },
+    {
+      "id": "nsw_heavy_config_2026",
+      "name": "TfNSW Registered Heavy Vehicles by Configuration Snapshot 2026",
+      "url": "https://data.nsw.gov.au/data/dataset/2-transport-nsw-vehicle-registration-statistics/resource/6aae4879-d1ac-4b1b-a6be-9e16122ff7b9",
+      "role": [
+        "class_prior",
+        "heavy_vehicle_prior",
+        "nsw"
+      ],
+      "license": "Creative Commons Attribution",
+      "policy": "commercial_ok",
+      "notes": "Current NSW heavy-vehicle configuration counts; use to weight sampling/prior probabilities."
+    },
+    {
+      "id": "vic_telemetry_2026",
+      "name": "Telemetry Traffic Counts and Classification 2026",
+      "url": "https://discover.data.vic.gov.au/dataset/telemetry-traffic-counts-and-classification",
+      "role": [
+        "class_prior",
+        "austroads12",
+        "speed_prior"
+      ],
+      "license": "CC BY 4.0",
+      "policy": "commercial_ok",
+      "notes": "Austroads 4-bin and 12-bin vehicle classes; updated July 2026."
+    },
+    {
+      "id": "road_vehicles_au_2025",
+      "name": "Road vehicles Australia, January 2025",
+      "url": "https://www.data.gov.au/data/dataset/road-vehicles-australia-january-2025",
+      "role": [
+        "fleet_prior",
+        "state_prior",
+        "make_model_prior"
+      ],
+      "license": "CC BY 3.0 Australia",
+      "policy": "commercial_ok",
+      "notes": "Use as fleet-distribution prior, not image training data."
+    },
+    {
+      "id": "mixed_signals_v2x",
+      "name": "Mixed Signals V2X",
+      "url": "https://huggingface.co/datasets/sberrio/Mixed-Signals-V2X",
+      "role": [
+        "research_3d",
+        "tracking",
+        "v2x"
+      ],
+      "license": "CC BY-NC-SA 4.0",
+      "policy": "research_only",
+      "notes": "Sydney real-world V2X; 8,394 train frames and 124,668 public 3D boxes. Do not use in commercial production weights."
+    },
+    {
+      "id": "lrlpr26",
+      "name": "LRLPR-26",
+      "url": "https://github.com/raysonlaroca/lrlpr-26-dataset",
+      "role": [
+        "research_ocr",
+        "temporal",
+        "super_resolution"
+      ],
+      "license": "non-commercial research access agreement",
+      "policy": "research_only",
+      "notes": "20k training tracks with 5 LR + 5 HR images and text labels; benchmark/architecture research only."
+    },
+    {
+      "id": "narrate_2026",
+      "name": "NARRATE",
+      "url": "https://arxiv.org/abs/2608.14767",
+      "role": [
+        "research_driving",
+        "temporal_context"
+      ],
+      "license": "access terms must be verified",
+      "policy": "research_only_until_verified",
+      "notes": "2,050 Australian driving events from 35 drivers; multimodal context."
+    },
+    {
+      "id": "revenue_nsw_anpr",
+      "name": "ANPR-Australia / Revenue NSW",
+      "url": "https://github.com/ANPR-Australia/ANPR-RevenueNSW",
+      "role": [
+        "plate_patterns",
+        "camera_calibration_reference"
+      ],
+      "license": "repository terms",
+      "policy": "reference_only",
+      "notes": "Useful historical NSW/QLD/TAS pattern and plate-dimension references; not a modern dataset."
+    },
+    {
+      "id": "austroads26",
+      "name": "Austroads-26 concept architecture",
+      "url": "https://austroads.gov.au/network-operations/traffic-management/Austroads-road-user-classification-scheme",
+      "role": [
+        "taxonomy_reference"
+      ],
+      "license": "reference",
+      "policy": "reference_only",
+      "notes": "CORE/LENGTH/PLUS Visual architecture; phased release late 2026/early 2027."
+    },
+    {
+      "id": "nhvr_truck_dog_2026",
+      "name": "NHVR 3-axle truck + 4-axle dog Notice 2026",
+      "url": "https://wp2.nhvr.gov.au/C2026G00416-national-class-3-20m-long-3-axle-truck-and-4-axle-dog-trailer-mass-and-dimension-exemption-notice-2026-no2-operators-guide",
+      "role": [
+        "truck_dog_geometry",
+        "taxonomy_reference"
+      ],
+      "license": "reference",
+      "policy": "reference_only",
+      "notes": "Defines the current 7-axle 3-axle rigid + 4-axle dog configuration and related visual/geometry cues."
+    },
+    {
+      "id": "mrtmd",
+      "name": "MRTMD",
+      "url": "https://github.com/OVD-Labs/MRTMD",
+      "role": [
+        "benchmark",
+        "vehicle_detection",
+        "plate_ocr"
+      ],
+      "license": "MIT",
+      "policy": "commercial_ok_benchmark",
+      "notes": "Not Australian. Useful as multi-resolution OCR/vehicle robustness benchmark; includes ground-truth plate text."
+    },
+    {
+      "id": "unidatapro_global_lpr",
+      "name": "UniDataPro global license plate OCR",
+      "url": "https://huggingface.co/datasets/UniDataPro/license-plate-detection",
+      "role": [
+        "optional_paid_ocr"
+      ],
+      "license": "commercial dataset / preview restrictions",
+      "policy": "external_optional",
+      "notes": "Australia included, but public preview is not enough for production training; license the Australian subset explicitly before use."
+    }
+  ]
+}
