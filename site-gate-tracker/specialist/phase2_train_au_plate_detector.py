@@ -31,13 +31,24 @@ def main():
     mb=YOLO(str(best))
     # Promotion is measured on the untouched Australian test split.
     v=mb.val(data=str(args.au/"data.yaml"),split="test",imgsz=512,plots=False,verbose=False)
+    def count_images(root:Path,split:str)->int:
+        d=root/split/"images"
+        return sum(1 for x in d.glob("*") if x.suffix.lower() in {".jpg",".jpeg",".png",".webp"}) if d.exists() else 0
     metrics={
       "map50":float(v.box.map50),"map50_95":float(v.box.map),
       "precision":float(v.box.mp),"recall":float(v.box.mr),
       "hf_source":"justjuu/license-plate-detection CC BY 4.0",
       "au_source":"TfNSW Live Traffic Cameras CC BY + synthetic NSW/NHV overlays",
       "model":args.model,"warmup_epochs":args.warmup_epochs,"au_epochs":args.au_epochs,
-      "evaluation_split":"test"
+      "evaluation_split":"test",
+      "dataset_counts":{
+        "generic_train":count_images(args.hf,"train"),
+        "generic_val":count_images(args.hf,"val"),
+        "generic_test":count_images(args.hf,"test"),
+        "au_train":count_images(args.au,"train"),
+        "au_val":count_images(args.au,"val"),
+        "au_test":count_images(args.au,"test")
+      }
     }
     shutil.copy2(best,args.out/"au_plate_detector.pt")
     try:
