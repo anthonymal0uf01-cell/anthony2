@@ -219,8 +219,13 @@ def main():
 
     # Fit reliability bins on validation only, then report final metrics on untouched test.
     _,cal_records=eval_model(model,val,device)
+    if args.adapt_dataset is not None:
+        _,camera_cal_records=eval_model(model,avl,device)
+        cal_records.extend(camera_cal_records)
     calibrator=fit_calibrator(cal_records,10)
     metrics,records=eval_model(model,test,device,calibrator)
+    if args.adapt_dataset is not None:
+        adapt_metrics_final,_=eval_model(model,atl,device,calibrator)
     metrics["calibrator"]=calibrator
     hard=[v["exact_match"] for k,v in metrics["by_slice"].items() if k.startswith("cond:") and v["n"]>=25]
     metrics["worst_hard_slice"]=min(hard) if hard else metrics["exact_match"]
