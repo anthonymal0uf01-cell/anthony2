@@ -234,7 +234,7 @@ def main():
                   max(1e-9,am["exact_match"]+sm["exact_match"]))
             print(json.dumps({"adapt_epoch":epoch,"camera_exact":am["exact_match"],
                 "synthetic_exact":sm["exact_match"],"combined":comb,
-                "train_loss":aloss/max(1,asteps),"lr":float(opt.param_groups[0]["lr"])},flush=True)
+                "train_loss":aloss/max(1,asteps),"lr":float(opt.param_groups[0]["lr"])}),flush=True)
             if comb>best_adapt[0]:
                 ast={k:v.detach().cpu() for k,v in model.state_dict().items()}
                 best_adapt=(comb,ast,{"camera_val":am,"synthetic_val":sm})
