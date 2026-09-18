@@ -1,0 +1,29 @@
+name: Australia Specialist Check
+on:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/**'
+      - '.github/workflows/au-specialist-check.yml'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install numpy pillow pyyaml
+      - name: Python syntax
+        run: python -m py_compile site-gate-tracker/specialist/*.py
+      - name: Catalog JSON
+        run: python -m json.tool site-gate-tracker/specialist/AU_DATA_CATALOG_2026.json >/dev/null
+      - name: Synthetic smoke
+        run: |
+          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 24 --out /tmp/au_synth
+          test -s /tmp/au_synth/rec_gt_train.txt
+          test -s /tmp/au_synth/manifest.jsonl
+      - name: Evaluation smoke
+        run: |
+          printf 'truth,pred,confidence,status,condition\nABC123,ABC123,0.95,CONFIRMED,day\nABC124,ABC12A,0.60,CONFIRMED,glare\n' >/tmp/p.csv
+          python site-gate-tracker/specialist/evaluate_au_specialist.py /tmp/p.csv
