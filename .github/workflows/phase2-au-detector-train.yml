@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'site-gate-tracker/specialist/export_hf_plate_detection_yolo.py'
+      - 'site-gate-tracker/specialist/export_tlpd_yolo.py'
       - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
       - 'site-gate-tracker/specialist/phase2_train_au_plate_detector.py'
       - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
@@ -27,15 +28,19 @@ jobs:
       - name: Export CC-BY Hugging Face plate boxes
         run: |
           python site-gate-tracker/specialist/export_hf_plate_detection_yolo.py --out /tmp/hf_plate --limit 1200
+      - name: Add MIT TLPD polygon plate corpus
+        run: |
+          python site-gate-tracker/specialist/export_tlpd_yolo.py --out /tmp/tlpd
+          python site-gate-tracker/specialist/merge_au_plate_datasets.py /tmp/hf_plate /tmp/tlpd --out /tmp/generic_plate
       - name: Build Australian road-domain detector set
         run: |
-          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 800
+          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 1200
       - name: Build live Australian vehicle profile
         run: |
           python site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py --out /tmp/phase2_detector/au_vehicle_profile.json --limit 100
       - name: Train generic to Australian detector
         run: |
-          python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/hf_plate --au /tmp/au_plate --out /tmp/phase2_detector
+          python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/generic_plate --au /tmp/au_plate --out /tmp/phase2_detector
       - name: Publish detector checkpoint
         run: |
           mkdir -p site-gate-tracker/specialist/weights
