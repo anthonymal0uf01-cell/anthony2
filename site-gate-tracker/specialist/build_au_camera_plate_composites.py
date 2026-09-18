@@ -87,23 +87,58 @@ def main():
             if im.width>=320 and im.height>=180:cache.append((im,meta,url))
         except Exception:pass
     if len(cache)<8: raise SystemExit(f"Only {len(cache)} live camera images downloaded")
+    # Detect real vehicles once per Australian camera frame. Synthetic plates are then
+    # attached to physical vehicle boxes instead of arbitrary road coordinates.
+    vehicle_model=None
+    try:
+        from ultralytics import YOLO
+        vehicle_model=YOLO("yolo26n.pt")
+    except Exception as e:
+        print("VEHICLE_ATTACHMENT_FALLBACK",e)
+    enriched=[]
+    for im,meta,url in cache:
+        boxes=[]
+        if vehicle_model is not None:
+            try:
+                rr=vehicle_model.predict(source=np.asarray(im),imgsz=640,conf=.23,verbose=False)[0]
+                if rr.boxes is not None:
+                    xy=rr.boxes.xyxy.cpu().numpy();cl=rr.boxes.cls.cpu().numpy().astype(int)
+                    for b,k in zip(xy,cl):
+                        if k not in {2,5,7}: continue
+                        x1,y1,x2,y2=map(float,b)
+                        if (x2-x1)*(y2-y1) < im.width*im.height*.002: continue
+                        boxes.append((x1,y1,x2,y2,k))
+            except Exception: pass
+        enriched.append((im,meta,url,boxes))
+    cache=enriched
     manifest=[];ocr_rows={"train":[],"val":[],"test":[]};ocr_manifest=[]
     for i in range(args.count):
         split="train" if i<int(args.count*.82) else ("val" if i<int(args.count*.92) else "test")
         imgs=args.out/split/"images";labs=args.out/split/"labels";imgs.mkdir(parents=True,exist_ok=True);labs.mkdir(parents=True,exist_ok=True)
-        base,meta,url=random.choice(cache); im=base.copy();W,H=im.size
+        base,meta,url,vehicle_boxes=random.choice(cache); im=base.copy();W,H=im.size
         # Place plates where vehicles are most likely in fixed traffic cameras:
         # lower/middle road field, with scale tied to scene depth.
         n=1 if random.random()<.78 else 2
         labels=[];objects=[]
         for k in range(n):
             p,txt,kind=plate()
-            cy=random.uniform(.48,.88); depth=(cy-.45)/.43
-            tw=int(np.clip(W*random.uniform(.055,.12)*(0.55+0.70*depth),34,180))
-            th=max(12,int(tw*(p.height/p.width)*random.uniform(.85,1.2)))
+            target=random.choice(vehicle_boxes) if vehicle_boxes else None
+            if target:
+                vx1,vy1,vx2,vy2,vcls=target
+                vw=max(20.0,vx2-vx1);vh=max(16.0,vy2-vy1)
+                # Registration plates normally occupy a small central lower-body region.
+                tw=int(np.clip(vw*random.uniform(.20,.42),30,180))
+                th=max(10,int(tw*(p.height/p.width)*random.uniform(.85,1.12)))
+                cx=random.uniform(vx1+vw*.35,vx1+vw*.65)
+                cy=random.uniform(vy1+vh*.61,vy1+vh*.84)
+            else:
+                cy=random.uniform(.55,.88)*H
+                tw=int(np.clip(W*random.uniform(.045,.095),30,150))
+                th=max(10,int(tw*(p.height/p.width)))
+                cx=random.uniform(.10,.90)*W
             p=p.resize((tw,th),Image.Resampling.BICUBIC)
-            angle=random.uniform(-9,9);p=p.rotate(angle,resample=Image.Resampling.BICUBIC,expand=True,fillcolor=(80,80,80))
-            x=int(random.uniform(.08,.92)*W-p.width/2);y=int(cy*H-p.height/2)
+            angle=random.uniform(-8,8);p=p.rotate(angle,resample=Image.Resampling.BICUBIC,expand=True,fillcolor=(80,80,80))
+            x=int(cx-p.width/2);y=int(cy-p.height/2)
             x=max(0,min(W-p.width,x));y=max(0,min(H-p.height,y))
             # blur a slightly larger patch first to reduce accidental old-plate leakage
             pad=max(2,int(p.width*.08));box=(max(0,x-pad),max(0,y-pad),min(W,x+p.width+pad),min(H,y+p.height+pad))
@@ -120,8 +155,17 @@ def main():
             xc=(x+p.width/2)/W;yc=(y+p.height/2)/H
             labels.append(f"0 {xc:.6f} {yc:.6f} {p.width/W:.6f} {p.height/H:.6f}")
             objects.append({"text":txt,"kind":kind,"bbox":[x,y,p.width,p.height]})
-        # keep some pure Australian-scene negatives for false-positive control
-        if random.random()<.10: labels=[];objects=[]
+        # Keep some domain negatives, but blur probable registration regions first so
+        # an unlabelled real plate is not trained as background.
+        if random.random()<.10:
+            for vx1,vy1,vx2,vy2,_ in vehicle_boxes:
+                vw=max(1,int(vx2-vx1));vh=max(1,int(vy2-vy1))
+                bx1=max(0,int(vx1+vw*.20));bx2=min(W,int(vx2-vw*.20))
+                by1=max(0,int(vy1+vh*.55));by2=min(H,int(vy2))
+                if bx2>bx1 and by2>by1:
+                    patch=im.crop((bx1,by1,bx2,by2)).filter(ImageFilter.GaussianBlur(max(3,vw/18)))
+                    im.paste(patch,(bx1,by1,bx2,by2))
+            labels=[];objects=[]
         fn=f"au_scene_{i:06d}.jpg";im.save(imgs/fn,quality=random.randint(76,94))
         (labs/(Path(fn).stem+".txt")).write_text(("\n".join(labels)+"\n") if labels else "")
         manifest.append({"file":f"{split}/images/{fn}","camera":meta.get("title") or meta.get("name") or meta.get("view"),"source_url":url,"source_license":"TfNSW CC BY","objects":objects})
