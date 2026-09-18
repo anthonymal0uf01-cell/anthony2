@@ -31,10 +31,15 @@ jobs:
       - name: Export CC-BY Hugging Face plate boxes
         run: |
           python site-gate-tracker/specialist/export_hf_plate_detection_yolo.py --out /tmp/hf_plate --limit 6176
-      - name: Add MIT TLPD polygon plate corpus
+      - name: Build generic plate corpus
         run: |
-          python site-gate-tracker/specialist/export_tlpd_yolo.py --out /tmp/tlpd
-          python site-gate-tracker/specialist/merge_au_plate_datasets.py /tmp/hf_plate /tmp/tlpd --out /tmp/generic_plate
+          if python site-gate-tracker/specialist/export_tlpd_yolo.py --out /tmp/tlpd; then
+            echo "TLPD annotations available; merging MIT corpus."
+            python site-gate-tracker/specialist/merge_au_plate_datasets.py /tmp/hf_plate /tmp/tlpd --out /tmp/generic_plate
+          else
+            echo "TLPD annotation conversion unavailable; continuing with full CC-BY corpus."
+            python site-gate-tracker/specialist/merge_au_plate_datasets.py /tmp/hf_plate --out /tmp/generic_plate
+          fi
       - name: Build Australian road-domain detector set
         run: |
           python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 2400
