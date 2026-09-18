@@ -168,12 +168,13 @@ def main():
         im=plate_base(kind,text);im,tags=degrade(im)
         fn=f"{i:08d}_{text}.jpg";im.save(imgdir/fn,quality=random.randint(55,94),subsampling=random.choice([0,1,2]))
         rows.append({"image":f"images/{fn}","text":text,"kind":kind,"pattern":pattern,"conditions":tags})
-    split=int(len(rows)*.94)
     random.shuffle(rows)
-    for name,part in [("train",rows[:split]),("val",rows[split:])]:
+    n=len(rows); tr=int(n*.90); va=int(n*.95)
+    parts={"train":rows[:tr],"val":rows[tr:va],"test":rows[va:]}
+    for name,part in parts.items():
         (args.out/f"rec_gt_{name}.txt").write_text("".join(f"{r['image']}\t{r['text']}\n" for r in part),encoding="utf-8")
     (args.out/"manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows),encoding="utf-8")
-    summary={"count":len(rows),"train":split,"val":len(rows)-split,"kinds":{},"conditions":{}}
+    summary={"count":len(rows),"train":len(parts["train"]),"val":len(parts["val"]),"test":len(parts["test"]),"kinds":{},"conditions":{}}
     for r in rows:
         summary["kinds"][r["kind"]]=summary["kinds"].get(r["kind"],0)+1
         for t in r["conditions"]: summary["conditions"][t]=summary["conditions"].get(t,0)+1
