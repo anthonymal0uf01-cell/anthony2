@@ -32,9 +32,9 @@ def urls(node,out=None):
     return list(dict.fromkeys(out))
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--out",type=Path,required=True);ap.add_argument("--limit",type=int,default=100);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--out",type=Path,required=True);ap.add_argument("--limit",type=int,default=400);args=ap.parse_args()
     from ultralytics import YOLO
-    js=json.loads(req(TFNSW)); us=urls(js)[:args.limit]
+    js=json.loads(req(TFNSW)); all_urls=urls(js); us=all_urls[:args.limit]
     model=YOLO("yolo26n.pt")
     counts=Counter();geom=defaultdict(list);frames=0
     for u in us:
@@ -51,7 +51,8 @@ def main():
                 x1,y1,x2,y2=b;geom[name].append({"area":float((x2-x1)*(y2-y1)/(W*H)),"aspect":float((x2-x1)/max(1,y2-y1)),"confidence":float(q)})
         except Exception:pass
     total=sum(counts.values()) or 1
-    profile={"source":"TfNSW Live Traffic Cameras","license":"Creative Commons Attribution","frames":frames,
+    profile={"source":"TfNSW Live Traffic Cameras","license":"Creative Commons Attribution",
+             "available_camera_urls":len(all_urls),"requested_limit":args.limit,"frames":frames,
              "detections":sum(counts.values()),"visual_prior":{k:v/total for k,v in counts.items()},"geometry":{}}
     for k,rows in geom.items():
         for feat in ("area","aspect","confidence"):
@@ -59,5 +60,6 @@ def main():
             profile["geometry"].setdefault(k,{})[feat]={"p10":float(np.quantile(a,.1)),"median":float(np.median(a)),"p90":float(np.quantile(a,.9))}
     args.out.parent.mkdir(parents=True,exist_ok=True);args.out.write_text(json.dumps(profile,indent=2),encoding="utf-8")
     print(json.dumps(profile,indent=2))
-    if frames<8:raise SystemExit("insufficient live Australian frames for vehicle calibration")
+    if frames<50:raise SystemExit("insufficient live Australian frames for vehicle calibration")
+    if sum(counts.values())<100:raise SystemExit("insufficient Australian vehicle detections for calibration")
 if __name__=="__main__":main()
