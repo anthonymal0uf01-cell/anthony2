@@ -31,7 +31,7 @@ jobs:
           python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 75000 --seed 260918 --out /tmp/au_synth
       - name: Build Australian camera-domain OCR adaptation set
         run: |
-          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_camera --count 6000 --seed 260919 --ocr-min-width 64 --ocr-min-height 18
+          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_camera --count 6000 --seed 260919 --ocr-min-width 64 --ocr-min-height 18 --require-ocr
       - name: Train and validate checkpoint
         run: |
           python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 10 --batch 96 --min-exact 0.95 --min-hard-slice 0.90 --adapt-dataset /tmp/au_camera/ocr --adapt-epochs 8 --adapt-synth-ratio 1.5 --adapt-lr-mult 0.06 --min-adapt-exact 0.80 --out /tmp/phase2_weights
