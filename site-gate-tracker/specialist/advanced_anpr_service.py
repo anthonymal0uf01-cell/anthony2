@@ -138,9 +138,11 @@ class TinyAUOCRRuntime:
             model.eval().to(self.device)
             self.model=model
             self.metrics=ckpt.get("metrics",{})
+            self.calibrator=ckpt.get("calibrator",[])
         except Exception as e:
             self.error=str(e)
             self.metrics={}
+            self.calibrator=[]
 
     @property
     def ready(self) -> bool:
@@ -157,6 +159,14 @@ class TinyAUOCRRuntime:
         canvas[y:y+nh,x:x+nw]=im
         arr=(canvas.astype(np.float32)/255.0-.5)/.5
         return torch.from_numpy(arr)[None,:,:]
+
+    def _calibrate(self, conf: float) -> float:
+        if not self.calibrator:
+            return float(conf)
+        for g in self.calibrator:
+            if conf <= float(g.get("hi",1.0)):
+                return float(g.get("accuracy",conf))
+        return float(self.calibrator[-1].get("accuracy",conf))
 
     @torch.inference_mode()
     def fused(self, crops: list[np.ndarray], weights: list[float]) -> tuple[str,float,float]:
@@ -175,7 +185,8 @@ class TinyAUOCRRuntime:
                 text.append(self.alphabet[i-1]); used.append(float(probs[t,i].item()))
             prev=i
         s=norm_plate("".join(text))
-        conf=float(np.prod(np.clip(used,1e-4,1.0))**(1/max(1,len(used)))) if used else 0.0
+        raw_conf=float(np.prod(np.clip(used,1e-4,1.0))**(1/max(1,len(used)))) if used else 0.0
+        conf=self._calibrate(raw_conf)
         ent=float((-(probs.clamp_min(1e-9)*probs.clamp_min(1e-9).log()).sum(-1)/math.log(probs.shape[-1])).mean().item())
         return s,conf,ent
 
