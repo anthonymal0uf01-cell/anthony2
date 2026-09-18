@@ -45,6 +45,17 @@ def main():
         result["fleet_by_type"]=aggregate(rows,["vehicle_type","vehicle type"],["no_vehicles","count","vehicles","total"])
         nsw=[r for r in rows if str(r.get("state_abb","")).upper()=="NSW"]
         result["nsw_fleet_by_type"]=aggregate(nsw,["vehicle_type","vehicle type"],["no_vehicles","count","vehicles","total"])
+    nsw_snapshot=read_zip_csvs(official/"tfnsw_vehicle_registrations_snapshot_2026.zip")
+    result["nsw_registration_vehicle_type"]=aggregate(
+        nsw_snapshot,["vehicle type","vehicle_type","body type","body_type","vehicle class"],
+        ["count","vehicles","total","number","registrations"])
+    result["nsw_registration_make"]=aggregate(
+        nsw_snapshot,["make","manufacturer"],
+        ["count","vehicles","total","number","registrations"])
+    usage=read_zip_csvs(official/"tfnsw_registered_vehicles_by_usage_2026.zip")
+    result["nsw_vehicle_usage"]=aggregate(
+        usage,["usage","vehicle usage","registration usage","use"],
+        ["count","vehicles","total","number","registrations"])
     heavy=read_zip_csvs(official/"tfnsw_heavy_vehicle_configuration_2026.zip")
     result["nsw_heavy_configuration"]=aggregate(heavy,["configuration","vehicle type","body type","description"],["count","vehicles","total","number"])
     vic=[]
