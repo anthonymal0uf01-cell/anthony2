@@ -252,6 +252,16 @@ def main():
     if args.adapt_dataset is not None:
         adapt_metrics_final,_=eval_model(model,atl,device,calibrator)
     metrics["calibrator"]=calibrator
+    metrics["training"]={
+        "synthetic_train":len(tr),"synthetic_val":len(va),"synthetic_test":len(te),
+        "epochs":args.epochs,"batch":args.batch,"lr":args.lr,
+        "adapt_epochs":args.adapt_epochs if args.adapt_dataset is not None else 0,
+        "adapt_synth_ratio":args.adapt_synth_ratio if args.adapt_dataset is not None else 0.0,
+        "adapt_lr_mult":args.adapt_lr_mult if args.adapt_dataset is not None else 0.0,
+        "camera_train":len(atr) if args.adapt_dataset is not None else 0,
+        "camera_val":len(ava) if args.adapt_dataset is not None else 0,
+        "camera_test":len(ate) if args.adapt_dataset is not None else 0,
+    }
     hard=[v["exact_match"] for k,v in metrics["by_slice"].items() if k.startswith("cond:") and v["n"]>=25]
     metrics["worst_hard_slice"]=min(hard) if hard else metrics["exact_match"]
     if adapt_metrics_final is not None: metrics["camera_domain"]=adapt_metrics_final
