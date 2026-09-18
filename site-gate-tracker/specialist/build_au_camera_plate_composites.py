@@ -76,6 +76,8 @@ def main():
     ap.add_argument("--out",type=Path,required=True)
     ap.add_argument("--count",type=int,default=800)
     ap.add_argument("--seed",type=int,default=20260918)
+    ap.add_argument("--ocr-min-width",type=int,default=64)
+    ap.add_argument("--ocr-min-height",type=int,default=18)
     args=ap.parse_args();random.seed(args.seed);np.random.seed(args.seed)
     args.out.mkdir(parents=True,exist_ok=True)
     cams=parse_cameras(req(TFNSW))
@@ -144,14 +146,19 @@ def main():
             pad=max(2,int(p.width*.08));box=(max(0,x-pad),max(0,y-pad),min(W,x+p.width+pad),min(H,y+p.height+pad))
             patch=im.crop(box).filter(ImageFilter.GaussianBlur(max(1.2,p.width/60)))
             im.paste(patch,box);im.paste(p,(x,y))
-            # Save a camera-domain OCR crop with surrounding pixels and final JPEG compression.
-            crop_pad=max(2,int(p.width*.12))
-            crop_box=(max(0,x-crop_pad),max(0,y-crop_pad),min(W,x+p.width+crop_pad),min(H,y+p.height+crop_pad))
-            crop=im.crop(crop_box)
-            ocr_dir=args.out/"ocr"/"images";ocr_dir.mkdir(parents=True,exist_ok=True)
-            ocfn=f"{i:06d}_{k}_{txt}.jpg";crop.save(ocr_dir/ocfn,quality=random.randint(68,92))
-            ocr_rows[split].append((f"images/{ocfn}",txt))
-            ocr_manifest.append({"image":f"images/{ocfn}","text":txt,"kind":kind,"conditions":["tfnsw_camera_domain"],"split":split})
+            # OCR only receives plate crops that meet a minimum readable pixel envelope.
+            # Smaller plates remain in detector data and are handled by abstention/continued capture.
+            if p.width>=args.ocr_min_width and p.height>=args.ocr_min_height:
+                crop_pad=max(1,int(p.width*.035))
+                crop_box=(max(0,x-crop_pad),max(0,y-crop_pad),min(W,x+p.width+crop_pad),min(H,y+p.height+crop_pad))
+                crop=im.crop(crop_box).resize((160,48),Image.Resampling.LANCZOS)
+                if random.random()<.35:
+                    crop=crop.filter(ImageFilter.GaussianBlur(random.uniform(.10,.45)))
+                ocr_dir=args.out/"ocr"/"images";ocr_dir.mkdir(parents=True,exist_ok=True)
+                ocfn=f"{i:06d}_{k}_{txt}.jpg";crop.save(ocr_dir/ocfn,quality=random.randint(82,96),subsampling=0)
+                ocr_rows[split].append((f"images/{ocfn}",txt))
+                ocr_manifest.append({"image":f"images/{ocfn}","text":txt,"kind":kind,
+                    "conditions":["tfnsw_camera_domain","readable_corridor"],"plate_pixels":[p.width,p.height],"split":split})
             xc=(x+p.width/2)/W;yc=(y+p.height/2)/H
             labels.append(f"0 {xc:.6f} {yc:.6f} {p.width/W:.6f} {p.height/H:.6f}")
             objects.append({"text":txt,"kind":kind,"bbox":[x,y,p.width,p.height]})
@@ -175,5 +182,10 @@ def main():
     for sp in ("train","val","test"):
         (ocr_root/f"rec_gt_{sp}.txt").write_text("".join(f"{p}\t{t}\n" for p,t in ocr_rows[sp]),encoding="utf-8")
     (ocr_root/"manifest.jsonl").write_text("\n".join(json.dumps(x) for x in ocr_manifest),encoding="utf-8")
-    print(json.dumps({"images":len(manifest),"ocr_crops":sum(len(v) for v in ocr_rows.values()),"live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
+    print(json.dumps({"images":len(manifest),"ocr_crops":sum(len(v) for v in ocr_rows.values()),
+        "ocr_split_counts":{k:len(v) for k,v in ocr_rows.items()},
+        "ocr_min_pixels":[args.ocr_min_width,args.ocr_min_height],
+        "live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
+    if len(ocr_rows["train"])<300 or len(ocr_rows["val"])<40 or len(ocr_rows["test"])<30:
+        raise SystemExit("Insufficient readable-corridor OCR crops; increase camera-domain corpus")
 if __name__=="__main__":main()
