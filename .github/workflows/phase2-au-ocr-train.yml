@@ -49,6 +49,7 @@ jobs:
           git commit -m "Train Phase 2 Australian OCR seed"
           git push
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: phase2-au-ocr-weights
           path: /tmp/phase2_weights/
