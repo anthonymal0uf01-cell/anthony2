@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-TFNSW="https://opendata.transport.nsw.gov.au/data/dataset/b0212311-b0da-4363-8dc3-825fe10941b2/resource/cc776d1a-d96c-4ae4-a465-c380a53717c9/download/livetrafficcamera.json"
+TFNSW="https://data.livetraffic.com/cameras/traffic-cam.json"
 COCO={2:"light_vehicle",3:"motorcycle",5:"bus",7:"heavy_vehicle"}
 
 def req(url,timeout=20):
@@ -17,7 +17,7 @@ def urls(node,out=None):
     out=out or []
     if isinstance(node,dict):
         for k,v in node.items():
-            if isinstance(v,str) and v.startswith("http") and ("image" in k.lower() or any(z in v.lower() for z in (".jpg",".jpeg","camera","livetraffic"))):
+            if isinstance(v,str) and v.startswith("http") and (any(z in k.lower() for z in ("image","href","url")) or any(z in v.lower() for z in (".jpg",".jpeg","camera","webcam","livetraffic"))):
                 out.append(v)
             else: urls(v,out)
     elif isinstance(node,list):
