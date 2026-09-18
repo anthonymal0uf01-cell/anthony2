@@ -9,6 +9,9 @@ on:
       - 'site-gate-tracker/specialist/phase2_train_au_plate_detector.py'
       - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
       - '.github/workflows/phase2-au-detector-train.yml'
+concurrency:
+  group: phase2-au-detector
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
