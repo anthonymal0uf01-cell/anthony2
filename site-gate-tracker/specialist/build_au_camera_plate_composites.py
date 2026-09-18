@@ -65,7 +65,7 @@ def main():
             if im.width>=320 and im.height>=180:cache.append((im,meta,url))
         except Exception:pass
     if len(cache)<8: raise SystemExit(f"Only {len(cache)} live camera images downloaded")
-    manifest=[]
+    manifest=[];ocr_rows={"train":[],"val":[],"test":[]};ocr_manifest=[]
     for i in range(args.count):
         split="train" if i<int(args.count*.82) else ("val" if i<int(args.count*.92) else "test")
         imgs=args.out/split/"images";labs=args.out/split/"labels";imgs.mkdir(parents=True,exist_ok=True);labs.mkdir(parents=True,exist_ok=True)
@@ -87,6 +87,14 @@ def main():
             pad=max(2,int(p.width*.08));box=(max(0,x-pad),max(0,y-pad),min(W,x+p.width+pad),min(H,y+p.height+pad))
             patch=im.crop(box).filter(ImageFilter.GaussianBlur(max(1.2,p.width/60)))
             im.paste(patch,box);im.paste(p,(x,y))
+            # Save a camera-domain OCR crop with surrounding pixels and final JPEG compression.
+            crop_pad=max(2,int(p.width*.12))
+            crop_box=(max(0,x-crop_pad),max(0,y-crop_pad),min(W,x+p.width+crop_pad),min(H,y+p.height+crop_pad))
+            crop=im.crop(crop_box)
+            ocr_dir=args.out/"ocr"/"images";ocr_dir.mkdir(parents=True,exist_ok=True)
+            ocfn=f"{i:06d}_{k}_{txt}.jpg";crop.save(ocr_dir/ocfn,quality=random.randint(68,92))
+            ocr_rows[split].append((f"images/{ocfn}",txt))
+            ocr_manifest.append({"image":f"images/{ocfn}","text":txt,"kind":kind,"conditions":["tfnsw_camera_domain"],"split":split})
             xc=(x+p.width/2)/W;yc=(y+p.height/2)/H
             labels.append(f"0 {xc:.6f} {yc:.6f} {p.width/W:.6f} {p.height/H:.6f}")
             objects.append({"text":txt,"kind":kind,"bbox":[x,y,p.width,p.height]})
@@ -97,5 +105,9 @@ def main():
         manifest.append({"file":f"{split}/images/{fn}","camera":meta.get("title") or meta.get("name") or meta.get("view"),"source_url":url,"source_license":"TfNSW CC BY","objects":objects})
     (args.out/"data.yaml").write_text(f"path: {args.out.resolve()}\ntrain: train/images\nval: val/images\ntest: test/images\nnames:\n  0: license_plate\n",encoding="utf-8")
     (args.out/"manifest.jsonl").write_text("\n".join(json.dumps(x) for x in manifest),encoding="utf-8")
-    print(json.dumps({"images":len(manifest),"live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
+    ocr_root=args.out/"ocr"
+    for sp in ("train","val","test"):
+        (ocr_root/f"rec_gt_{sp}.txt").write_text("".join(f"{p}\t{t}\n" for p,t in ocr_rows[sp]),encoding="utf-8")
+    (ocr_root/"manifest.jsonl").write_text("\n".join(json.dumps(x) for x in ocr_manifest),encoding="utf-8")
+    print(json.dumps({"images":len(manifest),"ocr_crops":sum(len(v) for v in ocr_rows.values()),"live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
 if __name__=="__main__":main()
