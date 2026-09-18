@@ -8,17 +8,13 @@ REPO="evan6007/TLPD"
 
 def load_tlpd():
     from datasets import load_dataset
-    try:
-        return load_dataset(REPO,split="train")
-    except Exception as first:
-        print("DIRECT_TLPD_LOAD_FAILED",repr(first),flush=True)
-        api="https://datasets-server.huggingface.co/parquet?dataset="+urllib.parse.quote(REPO,safe="")
-        req=urllib.request.Request(api,headers={"User-Agent":"SiteGatePhase2/2026"})
-        with urllib.request.urlopen(req,timeout=30) as r: meta=json.load(r)
-        urls=[x["url"] for x in meta.get("parquet_files",[]) if x.get("split")=="train" and x.get("url")]
-        if not urls: raise RuntimeError("No TLPD parquet files from datasets-server") from first
-        print(json.dumps({"tlpd_parquet_files":len(urls)},indent=2),flush=True)
-        return load_dataset("parquet",data_files={"train":urls},split="train")
+    api="https://datasets-server.huggingface.co/parquet?dataset="+urllib.parse.quote(REPO,safe="")
+    req=urllib.request.Request(api,headers={"User-Agent":"SiteGatePhase2/2026"})
+    with urllib.request.urlopen(req,timeout=30) as r: meta=json.load(r)
+    urls=[x["url"] for x in meta.get("parquet_files",[]) if x.get("split")=="train" and x.get("url")]
+    if not urls: raise RuntimeError("No TLPD train parquet files from datasets-server")
+    print(json.dumps({"tlpd_parquet_files":len(urls)},indent=2),flush=True)
+    return load_dataset("parquet",data_files={"train":urls},split="train")
 
 def _numeric_pair(x):
     return isinstance(x,(list,tuple)) and len(x)>=2 and all(isinstance(v,(int,float)) for v in x[:2])
