@@ -41,13 +41,28 @@ def plate():
 
 def parse_cameras(raw):
     j=json.loads(raw)
-    feats=j.get("features") or j.get("cameras") or j.get("data") or []
-    out=[]
-    for f in feats:
-        p=f.get("properties",f)
-        url=p.get("image_url") or p.get("imageUrl") or p.get("image") or p.get("url")
-        if isinstance(url,str) and url.startswith("http"):out.append((url,p))
-    return out
+    out=[];seen=set()
+    def walk(node, context=None):
+        context=context or {}
+        if isinstance(node,dict):
+            local=dict(context)
+            for k,v in node.items():
+                if isinstance(v,(str,int,float,bool)) and k.lower() in {"title","name","view","description","region","road","suburb"}:
+                    local[k]=v
+            for k,v in node.items():
+                if isinstance(v,str) and v.startswith("http"):
+                    kl=k.lower();vl=v.lower()
+                    if any(x in kl for x in ("image","camera","url","link")) or any(x in vl for x in (".jpg",".jpeg","camera","livetraffic")):
+                        if v not in seen:
+                            seen.add(v);out.append((v,local))
+                else:
+                    walk(v,local)
+        elif isinstance(node,list):
+            for x in node: walk(x,context)
+    walk(j,{})
+    # Prefer URLs that look image-like; retain broad fallback for changing TfNSW schema.
+    imageish=[x for x in out if any(z in x[0].lower() for z in (".jpg",".jpeg","image","camera"))]
+    return imageish or out
 
 def main():
     ap=argparse.ArgumentParser()
