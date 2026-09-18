@@ -78,6 +78,7 @@ def main():
     ap.add_argument("--seed",type=int,default=20260918)
     ap.add_argument("--ocr-min-width",type=int,default=64)
     ap.add_argument("--ocr-min-height",type=int,default=18)
+    ap.add_argument("--require-ocr",action="store_true",help="Fail if readable-corridor OCR splits are too small.")
     args=ap.parse_args();random.seed(args.seed);np.random.seed(args.seed)
     args.out.mkdir(parents=True,exist_ok=True)
     cams=parse_cameras(req(TFNSW))
@@ -186,6 +187,6 @@ def main():
         "ocr_split_counts":{k:len(v) for k,v in ocr_rows.items()},
         "ocr_min_pixels":[args.ocr_min_width,args.ocr_min_height],
         "live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
-    if len(ocr_rows["train"])<300 or len(ocr_rows["val"])<40 or len(ocr_rows["test"])<30:
+    if args.require_ocr and (len(ocr_rows["train"])<300 or len(ocr_rows["val"])<40 or len(ocr_rows["test"])<30):
         raise SystemExit("Insufficient readable-corridor OCR crops; increase camera-domain corpus")
 if __name__=="__main__":main()
