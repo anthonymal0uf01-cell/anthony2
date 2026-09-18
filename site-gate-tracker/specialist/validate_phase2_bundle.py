@@ -14,7 +14,9 @@ def load(p):return json.loads(p.read_text(encoding="utf-8"))
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--root",type=Path,default=Path("site-gate-tracker/specialist"));ap.add_argument("--manifest",type=Path,default=None);a=ap.parse_args()
     w=a.root/"weights"
-    required=["au_ocr_seed.pt","au_ocr_seed.onnx","au_ocr_seed.metrics.json","au_plate_detector.pt","au_plate_detector.metrics.json","au_vehicle_profile.json"]
+    required=["au_ocr_seed.pt","au_ocr_seed.onnx","au_ocr_seed.metrics.json",
+              "au_plate_detector.pt","au_plate_detector.onnx","au_plate_detector.metrics.json",
+              "au_vehicle_profile.json"]
     missing=[x for x in required if not (w/x).exists()]
     if missing:raise SystemExit("PHASE2 INCOMPLETE missing: "+", ".join(missing))
     o=load(w/"au_ocr_seed.metrics.json");d=load(w/"au_plate_detector.metrics.json");v=load(w/"au_vehicle_profile.json")
@@ -24,8 +26,9 @@ def main():
     cam=(o.get("camera_domain") or {}).get("exact_match",0)
     if cam<.80:failures.append(f"OCR camera-domain {cam:.3f}<.80")
     if o.get("brier_calibrated",1)>o.get("brier_raw",0):failures.append("OCR calibration worsened Brier score")
-    if d.get("map50",0)<.55:failures.append(f"detector mAP50 {d.get('map50',0):.3f}<.55")
-    if d.get("recall",0)<.55:failures.append(f"detector recall {d.get('recall',0):.3f}<.55")
+    if d.get("map50",0)<.60:failures.append(f"detector mAP50 {d.get('map50',0):.3f}<.60")
+    if d.get("recall",0)<.60:failures.append(f"detector recall {d.get('recall',0):.3f}<.60")
+    if d.get("evaluation_split")!="test":failures.append("detector was not promoted from untouched test split")
     if v.get("frames",0)<8 or v.get("detections",0)<1:failures.append("Australian vehicle profile insufficient")
     catalog=load(a.root/"AU_DATA_CATALOG_2026.json")
     prod={x["id"]:x for x in catalog.get("sources",[]) if not str(x.get("policy","")).startswith("research")}
