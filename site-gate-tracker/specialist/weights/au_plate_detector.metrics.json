@@ -1,0 +1,24 @@
+{
+  "map50": 0.8665900253999699,
+  "map50_95": 0.6313260341162263,
+  "precision": 0.9070735815825162,
+  "recall": 0.8955268643789112,
+  "hf_source": "justjuu/license-plate-detection CC BY 4.0",
+  "au_source": "TfNSW Live Traffic Cameras CC BY + synthetic NSW/NHV overlays",
+  "model": "yolo26n.pt",
+  "warmup_epochs": 1,
+  "au_epochs": 5,
+  "warmup_imgsz": 320,
+  "au_imgsz": 384,
+  "warmup_batch": 32,
+  "au_batch": 24,
+  "evaluation_split": "test",
+  "dataset_counts": {
+    "generic_train": 6176,
+    "generic_val": 250,
+    "generic_test": 250,
+    "au_train": 1967,
+    "au_val": 241,
+    "au_test": 192
+  }
+}
