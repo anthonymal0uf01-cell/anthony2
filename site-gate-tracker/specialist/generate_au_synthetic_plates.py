@@ -33,7 +33,7 @@ def random_personalised()->str:
     n=random.randint(3,7)
     s="".join(random.choice(LETTERS+DIGITS) for _ in range(n))
     if s.isdigit() or s.isalpha():
-        if random.random()<p_blur5:
+        if random.random()<.65:
             k=random.randrange(n)
             s=s[:k]+random.choice(DIGITS if s.isalpha() else LETTERS)+s[k+1:]
     return s
