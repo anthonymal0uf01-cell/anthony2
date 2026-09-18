@@ -33,7 +33,7 @@ def random_personalised()->str:
     n=random.randint(3,7)
     s="".join(random.choice(LETTERS+DIGITS) for _ in range(n))
     if s.isdigit() or s.isalpha():
-        if random.random()<.65:
+        if random.random()<p_blur5:
             k=random.randrange(n)
             s=s[:k]+random.choice(DIGITS if s.isalpha() else LETTERS)+s[k+1:]
     return s
@@ -85,14 +85,25 @@ def perspective(im:Image.Image)->Image.Image:
     # PIL affine keeps this dependency-light and sufficient for OCR domain randomisation.
     return im.transform((w,h),Image.Transform.AFFINE,(1,shear,-shear*h/2,random.uniform(-.03,.03),1,0),resample=Image.Resampling.BICUBIC,fillcolor=(30,30,30))
 
-def degrade(im:Image.Image)->tuple[Image.Image,list[str]]:
+def degrade(im:Image.Image,focus:bool=False)->tuple[Image.Image,list[str]]:
     tags=[]
-    if random.random()<.7:
+    p_oblique=.80 if focus else .70
+    p_blur=.68 if focus else .60
+    p_motion=.42 if focus else .30
+    p_dark=.70 if focus else .45
+    p_contrast=.42 if focus else .35
+    p_glare=.62 if focus else .35
+    p_dirt=.42 if focus else .35
+    p_rain=.36 if focus else .28
+    p_headlight=.46 if focus else .22
+    p_occlusion=.26 if focus else .20
+    p_lowres=.62 if focus else .55
+    if random.random()<p_oblique:
         im=perspective(im);tags.append("oblique")
     if random.random()<.6:
         radius=random.uniform(.2,2.3);im=im.filter(ImageFilter.GaussianBlur(radius));tags.append("blur")
     # Directional motion smear from a moving truck/camera, distinct from defocus blur.
-    if random.random()<.30:
+    if random.random()<p_motion:
         k=random.choice([3,5,7,9])
         arr=np.asarray(im,dtype=np.float32)
         acc=np.zeros_like(arr,dtype=np.float32)
@@ -108,44 +119,46 @@ def degrade(im:Image.Image)->tuple[Image.Image,list[str]]:
                 elif off<0: shifted[off:,:]=arr[-1:,:]
             acc+=shifted
         im=Image.fromarray(np.clip(acc/len(list(offsets)),0,255).astype(np.uint8));tags.append("motion_blur")
-    if random.random()<.45:
+    if random.random()<p_dark:
         b=random.uniform(.25,.85);im=ImageEnhance.Brightness(im).enhance(b);tags.append("dark")
-    if random.random()<.35:
+    if random.random()<p_contrast:
         c=random.uniform(.55,1.5);im=ImageEnhance.Contrast(im).enhance(c);tags.append("contrast")
-    if random.random()<.35:
+    if random.random()<p_glare:
         d=ImageDraw.Draw(im,"RGBA");w,h=im.size
         for _ in range(random.randint(1,4)):
             x=random.randint(0,w);y=random.randint(0,h);r=random.randint(max(4,h//18),max(8,h//4))
             d.ellipse((x-r,y-r,x+r,y+r),fill=(255,255,245,random.randint(25,100)))
         tags.append("glare")
-    if random.random()<.35:
+    if random.random()<p_dirt:
         d=ImageDraw.Draw(im,"RGBA");w,h=im.size
         for _ in range(random.randint(3,12)):
             x=random.randint(0,w);y=random.randint(0,h);rx=random.randint(2,max(3,w//20));ry=random.randint(1,max(2,h//15))
             d.ellipse((x-rx,y-ry,x+rx,y+ry),fill=(80,55,30,random.randint(15,75)))
         tags.append("dirt")
-    if random.random()<.28:
+    if random.random()<p_rain:
         d=ImageDraw.Draw(im,"RGBA");w,h=im.size
         for _ in range(random.randint(5,18)):
             x=random.randint(-10,w);y=random.randint(-5,h);ln=random.randint(max(4,h//12),max(7,h//3))
             d.line((x,y,x+random.randint(-2,5),y+ln),fill=(210,225,235,random.randint(35,110)),width=random.randint(1,2))
         tags.append("rain")
-    if random.random()<.22:
+    if random.random()<p_headlight:
         d=ImageDraw.Draw(im,"RGBA");w,h=im.size
         side=random.choice([-1,1]);cx=int(w*(.08 if side<0 else .92));cy=random.randint(int(h*.2),int(h*.8))
         rx=random.randint(max(8,w//10),max(12,w//4));ry=random.randint(max(6,h//5),max(10,h//2))
         d.ellipse((cx-rx,cy-ry,cx+rx,cy+ry),fill=(255,250,220,random.randint(35,105)))
         im=im.filter(ImageFilter.GaussianBlur(random.uniform(.3,1.0)));tags.append("headlight_bloom")
-    if random.random()<.20:
+    if random.random()<p_occlusion:
         d=ImageDraw.Draw(im,"RGBA");w,h=im.size
         ow=random.randint(max(5,w//20),max(8,w//7));oh=random.randint(max(4,h//10),max(7,h//3))
         x=random.randint(0,max(0,w-ow));y=random.randint(0,max(0,h-oh))
         d.rounded_rectangle((x,y,x+ow,y+oh),radius=max(1,oh//5),fill=(55,45,34,random.randint(90,190)))
         tags.append("partial_occlusion")
-    if random.random()<.55:
+    if random.random()<p_lowres:
         scale=random.uniform(.18,.75)
         small=im.resize((max(24,int(im.width*scale)),max(10,int(im.height*scale))),Image.Resampling.BILINEAR)
         im=small.resize(im.size,Image.Resampling.BICUBIC);tags.append("low_resolution")
+    if focus and not any(t in tags for t in ("dark","glare","headlight_bloom","motion_blur")):
+        im=ImageEnhance.Brightness(im).enhance(random.uniform(.30,.65));tags.append("dark")
     return im,tags
 
 def main():
@@ -153,6 +166,8 @@ def main():
     ap.add_argument("--out",type=Path,default=Path("data/au_synth"))
     ap.add_argument("--count",type=int,default=10000)
     ap.add_argument("--seed",type=int,default=1404)
+    ap.add_argument("--focus-extra",type=int,default=0,
+                    help="Extra train-only hard cases weighted from prior validation errors.")
     args=ap.parse_args();random.seed(args.seed);np.random.seed(args.seed)
     imgdir=args.out/"images";imgdir.mkdir(parents=True,exist_ok=True)
     rows=[]
@@ -165,18 +180,40 @@ def main():
         else:
             pats=NHV_PATTERNS if kind=="nhv" else NSW_PATTERNS
             pattern=random.choice(pats);text=rand_from(pattern)
-        im=plate_base(kind,text);im,tags=degrade(im)
+        im=plate_base(kind,text);im,tags=degrade(im,False)
         fn=f"{i:08d}_{text}.jpg";im.save(imgdir/fn,quality=random.randint(55,94),subsampling=random.choice([0,1,2]))
-        rows.append({"image":f"images/{fn}","text":text,"kind":kind,"pattern":pattern,"conditions":tags})
+        rows.append({"image":f"images/{fn}","text":text,"kind":kind,"pattern":pattern,"conditions":tags,"curriculum":"base"})
     random.shuffle(rows)
     n=len(rows); tr=int(n*.90); va=int(n*.95)
     parts={"train":rows[:tr],"val":rows[tr:va],"test":rows[va:]}
+
+    # Prior run showed residual error concentration in glare/dark/headlight conditions
+    # and on yellow/NHV appearances. Add these ONLY to training; val/test remain base-distribution.
+    focus_rows=[]
+    focus_weights=[.24,.30,.36,.10]
+    for j in range(args.focus_extra):
+        kind=random.choices(kinds,focus_weights)[0]
+        if random.random()<.12:
+            text=random_personalised();pattern="personalised"
+        else:
+            pats=NHV_PATTERNS if kind=="nhv" else NSW_PATTERNS
+            pattern=random.choice(pats);text=rand_from(pattern)
+        im=plate_base(kind,text);im,tags=degrade(im,True)
+        idx=args.count+j
+        fn=f"{idx:08d}_{text}.jpg";im.save(imgdir/fn,quality=random.randint(52,92),subsampling=random.choice([0,1,2]))
+        focus_rows.append({"image":f"images/{fn}","text":text,"kind":kind,"pattern":pattern,
+                           "conditions":tags,"curriculum":"error_focused"})
+    parts["train"].extend(focus_rows)
+    all_rows=rows+focus_rows
     for name,part in parts.items():
         (args.out/f"rec_gt_{name}.txt").write_text("".join(f"{r['image']}\t{r['text']}\n" for r in part),encoding="utf-8")
-    (args.out/"manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows),encoding="utf-8")
-    summary={"count":len(rows),"train":len(parts["train"]),"val":len(parts["val"]),"test":len(parts["test"]),"kinds":{},"conditions":{}}
-    for r in rows:
+    (args.out/"manifest.jsonl").write_text("\n".join(json.dumps(r) for r in all_rows),encoding="utf-8")
+    summary={"count":len(all_rows),"base_count":len(rows),"focus_extra":len(focus_rows),
+             "train":len(parts["train"]),"val":len(parts["val"]),"test":len(parts["test"]),
+             "kinds":{},"conditions":{},"curriculum":{}}
+    for r in all_rows:
         summary["kinds"][r["kind"]]=summary["kinds"].get(r["kind"],0)+1
+        summary["curriculum"][r.get("curriculum","base")]=summary["curriculum"].get(r.get("curriculum","base"),0)+1
         for t in r["conditions"]: summary["conditions"][t]=summary["conditions"].get(t,0)+1
     (args.out/"summary.json").write_text(json.dumps(summary,indent=2),encoding="utf-8")
     print(json.dumps(summary,indent=2))
