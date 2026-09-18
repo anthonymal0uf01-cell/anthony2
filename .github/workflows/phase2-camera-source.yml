@@ -1,0 +1,46 @@
+name: Phase 2 NSW Camera Source
+on:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
+      - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
+      - '.github/workflows/phase2-camera-source.yml'
+  workflow_dispatch:
+jobs:
+  camera-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pillow
+      - name: Verify current TfNSW GeoJSON and JPEG frames
+        run: |
+          python - <<'PY'
+          import io,json,urllib.request
+          from PIL import Image
+          meta="https://data.livetraffic.com/cameras/traffic-cam.json"
+          def get(url):
+              h={
+                "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1",
+                "Accept":"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" if "webcams.transport.nsw.gov.au" in url else "application/json,text/plain,*/*",
+                "Referer":"https://www.livetraffic.com/",
+                "Accept-Language":"en-AU,en;q=0.9",
+                "Cache-Control":"no-cache",
+              }
+              with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=12) as r:return r.read()
+          j=json.loads(get(meta))
+          urls=[x.get("properties",{}).get("href") for x in j.get("features",[])]
+          urls=[x for x in urls if isinstance(x,str) and x.startswith("http")]
+          ok=[]
+          for u in urls[:60]:
+              try:
+                  im=Image.open(io.BytesIO(get(u)));im.verify()
+                  ok.append(u)
+                  if len(ok)>=5:break
+              except Exception:pass
+          print(json.dumps({"camera_metadata":len(urls),"decoded_frames":len(ok),"examples":ok},indent=2))
+          if len(urls)<50 or len(ok)<5:raise SystemExit("TfNSW camera source gate failed")
+          PY
