@@ -48,21 +48,33 @@ def main():
     work.mkdir(parents=True)
     with zipfile.ZipFile(args.zip) as z:z.extractall(work)
     manifest=[json.loads(x) for x in (work/'manifest.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
-    labelled=[m for m in manifest if norm(m.get('label',''))]
+    labelled=[m for m in manifest if norm(m.get('label','')) or norm(m.get('label2',''))]
     if not labelled:raise SystemExit('No labelled samples in export. Confirm plates or use LABEL LATEST HARD CASE first.')
     ocr=OpenOCRE2E(mode='mobile',backend='onnx',drop_score=.05,det_box_type='quad',use_gpu='auto')
     rows=[]
     crops=args.out/'crops';crops.mkdir(exist_ok=True)
     for n,m in enumerate(labelled):
-        label=norm(m['label']);src=work/m['image'];img=cv2.imread(str(src))
+        src=work/m['image'];img=cv2.imread(str(src))
         if img is None:continue
         result,_=ocr(img_numpy_list=[img],is_visualize=False,crop_infer=True,rec_batch_num=4);items=(result or [[]])[0]
         if not items:continue
-        best=max(items,key=lambda it:box_score(it,label,img.shape))
-        if box_score(best,label,img.shape)<.15:continue
-        crop=rectify(img,best['points'])
-        if crop.shape[1]<20 or crop.shape[0]<8:continue
-        fn=f"{n:06d}_{label}.jpg";cv2.imwrite(str(crops/fn),crop,[cv2.IMWRITE_JPEG_QUALITY,95]);rows.append((f'crops/{fn}',label,m))
+        used=set()
+        labels=[("primary",norm(m.get("label",""))),("secondary",norm(m.get("label2","")))]
+        for slot,label in labels:
+            if not label:continue
+            ranked=sorted(enumerate(items),key=lambda kv:box_score(kv[1],label,img.shape),reverse=True)
+            chosen=None
+            for idx,it in ranked:
+                if idx in used:continue
+                if box_score(it,label,img.shape)>=.15:
+                    chosen=(idx,it);break
+            if chosen is None:continue
+            idx,best=chosen;used.add(idx)
+            crop=rectify(img,best['points'])
+            if crop.shape[1]<20 or crop.shape[0]<8:continue
+            fn=f"{n:06d}_{slot}_{label}.jpg";cv2.imwrite(str(crops/fn),crop,[cv2.IMWRITE_JPEG_QUALITY,95])
+            meta=dict(m);meta["plate_slot"]=slot
+            rows.append((f'crops/{fn}',label,meta))
     if len(rows)<4:raise SystemExit(f'Only {len(rows)} usable labelled plate crops found. Collect/correct more hard cases.')
     random.Random(1404).shuffle(rows);cut=max(1,int(len(rows)*(1-args.val_frac)));train,val=rows[:cut],rows[cut:]
     (args.out/'rec_gt_train.txt').write_text(''.join(f'{p}\t{y}\n' for p,y,_ in train),encoding='utf-8')
