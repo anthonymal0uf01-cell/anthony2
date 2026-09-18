@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 LETTERS="ABCDEFGHIJKLMNOPQRSTUVWXYZ";DIGITS="0123456789"
 PATTERNS=["LLDDLL","LLLDDL","LLLDDD","DDDLLL","LLDDD","LLDDDD"]
-TFNSW="https://opendata.transport.nsw.gov.au/data/dataset/b0212311-b0da-4363-8dc3-825fe10941b2/resource/cc776d1a-d96c-4ae4-a465-c380a53717c9/download/livetrafficcamera.json"
+TFNSW="https://data.livetraffic.com/cameras/traffic-cam.json"
 
 def req(url,timeout=30):
     r=urllib.request.Request(url,headers={"User-Agent":"SiteGatePhase2/2026"})
@@ -52,7 +52,7 @@ def parse_cameras(raw):
             for k,v in node.items():
                 if isinstance(v,str) and v.startswith("http"):
                     kl=k.lower();vl=v.lower()
-                    if any(x in kl for x in ("image","camera","url","link")) or any(x in vl for x in (".jpg",".jpeg","camera","livetraffic")):
+                    if any(x in kl for x in ("image","camera","url","link","href")) or any(x in vl for x in (".jpg",".jpeg","camera","webcam","livetraffic")):
                         if v not in seen:
                             seen.add(v);out.append((v,local))
                 else:
