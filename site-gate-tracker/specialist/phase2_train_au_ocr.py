@@ -163,8 +163,11 @@ def main():
     torch.set_num_threads(max(1,min(4,torch.get_num_threads())))
     tr=PlateDataset(args.dataset,args.dataset/"rec_gt_train.txt")
     va=PlateDataset(args.dataset,args.dataset/"rec_gt_val.txt")
+    test_gt=args.dataset/"rec_gt_test.txt"
+    te=PlateDataset(args.dataset,test_gt if test_gt.exists() else args.dataset/"rec_gt_val.txt")
     train=DataLoader(tr,batch_size=args.batch,shuffle=True,num_workers=2,collate_fn=collate,persistent_workers=True)
     val=DataLoader(va,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
+    test=DataLoader(te,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model=TinyAUOCR().to(device)
     opt=torch.optim.AdamW(model.parameters(),lr=args.lr,weight_decay=1e-4)
@@ -196,8 +199,11 @@ def main():
     if args.adapt_dataset is not None:
         atr=PlateDataset(args.adapt_dataset,args.adapt_dataset/"rec_gt_train.txt")
         ava=PlateDataset(args.adapt_dataset,args.adapt_dataset/"rec_gt_val.txt")
+        atest_gt=args.adapt_dataset/"rec_gt_test.txt"
+        ate=PlateDataset(args.adapt_dataset,atest_gt if atest_gt.exists() else args.adapt_dataset/"rec_gt_val.txt")
         adl=DataLoader(atr,batch_size=args.batch,shuffle=True,num_workers=2,collate_fn=collate,persistent_workers=True)
         avl=DataLoader(ava,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
+        atl=DataLoader(ate,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
         opt=torch.optim.AdamW(model.parameters(),lr=args.lr*.22,weight_decay=1e-4)
         for epoch in range(1,args.adapt_epochs+1):
             model.train()
@@ -209,11 +215,12 @@ def main():
             am,_=eval_model(model,avl,device)
             adapt_metrics_final=am
             print(json.dumps({"adapt_epoch":epoch,**am}),flush=True)
+        adapt_metrics_final,_=eval_model(model,atl,device)
 
-    # Fit empirical confidence calibration on an independent held-out split.
-    raw_metrics,records=eval_model(model,val,device)
-    calibrator=fit_calibrator(records,10)
-    metrics,records=eval_model(model,val,device,calibrator)
+    # Fit reliability bins on validation only, then report final metrics on untouched test.
+    _,cal_records=eval_model(model,val,device)
+    calibrator=fit_calibrator(cal_records,10)
+    metrics,records=eval_model(model,test,device,calibrator)
     metrics["calibrator"]=calibrator
     hard=[v["exact_match"] for k,v in metrics["by_slice"].items() if k.startswith("cond:") and v["n"]>=25]
     metrics["worst_hard_slice"]=min(hard) if hard else metrics["exact_match"]
