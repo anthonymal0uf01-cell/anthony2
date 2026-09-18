@@ -7,7 +7,9 @@ import os
 import urllib.request
 from pathlib import Path
 
-TFNSW_CAMERAS = "https://opendata.transport.nsw.gov.au/data/dataset/b0212311-b0da-4363-8dc3-825fe10941b2/resource/cc776d1a-d96c-4ae4-a465-c380a53717c9/download/livetrafficcamera.json"
+TFNSW_CAMERAS = "https://data.livetraffic.com/cameras/traffic-cam.json"
+NSW_VEHICLE_SNAPSHOT_2026 = "https://opendata.transport.nsw.gov.au/data/dataset/2342b8e4-d4fc-4549-82de-b36380ea46f2/resource/ce42b24e-ffb9-4f6c-9637-6a26f9574624/download/tfnsw_vehicle_registrations_snapshot_2026.zip"
+NSW_USAGE_2026 = "https://opendata.transport.nsw.gov.au/data/dataset/2342b8e4-d4fc-4549-82de-b36380ea46f2/resource/4ed7fe09-15f1-476e-97e2-02afff9d0781/download/tfnsw_registered_vehicles_by_usage_snapshot_2026.zip"
 NSW_HEAVY_2026 = "https://opendata.transport.nsw.gov.au/data/dataset/2342b8e4-d4fc-4549-82de-b36380ea46f2/resource/15ae0f12-ba3f-4189-9f67-87421141b47b/download/tfnsw_registered_heavy_vehicles_by_configuration_snapshot_2026.zip"
 RVA_2025 = "https://data.gov.au/data/dataset/f6e0a290-7d47-4b88-ac3b-34824b0ab334/resource/87bd686c-29cf-474e-a14f-4ec4f576dbff/download/rva-2025-mvs-vehtype-streg-mtvpwr-rpc.csv"
 VIC_PACKAGE_API = "https://discover.data.vic.gov.au/api/3/action/package_show?id=a7c112d6-668f-4777-a61b-80f646f3f2b9"
@@ -77,6 +79,8 @@ def main():
     out.mkdir(parents=True,exist_ok=True)
 
     download(TFNSW_CAMERAS,out/"official"/"nsw_live_traffic_cameras.json")
+    download(NSW_VEHICLE_SNAPSHOT_2026,out/"official"/"tfnsw_vehicle_registrations_snapshot_2026.zip")
+    download(NSW_USAGE_2026,out/"official"/"tfnsw_registered_vehicles_by_usage_2026.zip")
     download(NSW_HEAVY_2026,out/"official"/"tfnsw_heavy_vehicle_configuration_2026.zip")
     download(RVA_2025,out/"official"/"road_vehicles_australia_2025.csv")
 
@@ -97,6 +101,8 @@ def main():
         "created_by":"Site Gate Tracker v7 Australia Specialist",
         "official_sources":{
             "tfnsw_live_cameras":{"path":str(out/"official"/"nsw_live_traffic_cameras.json"),"use":"vehicle-domain metadata; mask plates before retaining imagery"},
+            "nsw_vehicle_snapshot_2026":{"path":str(out/"official"/"tfnsw_vehicle_registrations_snapshot_2026.zip"),"use":"current NSW fleet priors"},
+            "nsw_usage_2026":{"path":str(out/"official"/"tfnsw_registered_vehicles_by_usage_2026.zip"),"use":"current NSW usage priors"},
             "nsw_heavy_2026":{"path":str(out/"official"/"tfnsw_heavy_vehicle_configuration_2026.zip"),"use":"heavy configuration priors"},
             "road_vehicles_au_2025":{"path":str(out/"official"/"road_vehicles_australia_2025.csv"),"use":"fleet priors"},
             "victoria_telemetry_2026":vic,
