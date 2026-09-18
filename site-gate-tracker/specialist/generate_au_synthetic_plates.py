@@ -94,15 +94,20 @@ def degrade(im:Image.Image)->tuple[Image.Image,list[str]]:
     # Directional motion smear from a moving truck/camera, distinct from defocus blur.
     if random.random()<.30:
         k=random.choice([3,5,7,9])
-        kernel=[0.0]*(k*k)
+        arr=np.asarray(im,dtype=np.float32)
+        acc=np.zeros_like(arr,dtype=np.float32)
         horizontal=random.random()<.72
-        if horizontal:
-            row=k//2
-            for x in range(k): kernel[row*k+x]=1.0/k
-        else:
-            col=k//2
-            for y in range(k): kernel[y*k+col]=1.0/k
-        im=im.filter(ImageFilter.Kernel((k,k),kernel,scale=1.0));tags.append("motion_blur")
+        offsets=range(-(k//2),k//2+1)
+        for off in offsets:
+            shifted=np.roll(arr,off,axis=1 if horizontal else 0)
+            if horizontal:
+                if off>0: shifted[:,:off]=arr[:,:1]
+                elif off<0: shifted[:,off:]=arr[:,-1:]
+            else:
+                if off>0: shifted[:off,:]=arr[:1,:]
+                elif off<0: shifted[off:,:]=arr[-1:,:]
+            acc+=shifted
+        im=Image.fromarray(np.clip(acc/len(list(offsets)),0,255).astype(np.uint8));tags.append("motion_blur")
     if random.random()<.45:
         b=random.uniform(.25,.85);im=ImageEnhance.Brightness(im).enhance(b);tags.append("dark")
     if random.random()<.35:
