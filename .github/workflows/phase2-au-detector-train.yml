@@ -1,0 +1,44 @@
+name: Phase 2 AU Detector Train
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install detector stack
+        run: |
+          python -m pip install --upgrade pip
+          pip install ultralytics datasets pillow
+      - name: Export CC-BY Hugging Face plate boxes
+        run: |
+          python site-gate-tracker/specialist/export_hf_plate_detection_yolo.py --out /tmp/hf_plate --limit 1200
+      - name: Build Australian road-domain detector set
+        run: |
+          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 800
+      - name: Train generic to Australian detector
+        run: |
+          python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/hf_plate --au /tmp/au_plate --out /tmp/phase2_detector
+      - name: Publish detector checkpoint
+        run: |
+          mkdir -p site-gate-tracker/specialist/weights
+          cp /tmp/phase2_detector/au_plate_detector.pt site-gate-tracker/specialist/weights/
+          cp /tmp/phase2_detector/au_plate_detector.metrics.json site-gate-tracker/specialist/weights/
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git pull --rebase origin main
+          git add site-gate-tracker/specialist/weights/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Train Phase 2 Australian plate detector"
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase2-au-detector
+          path: /tmp/phase2_detector/
+          retention-days: 30
