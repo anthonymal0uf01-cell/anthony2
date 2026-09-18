@@ -14,7 +14,7 @@ def main():
     ap=argparse.ArgumentParser();ap.add_argument('--skip-restoration',action='store_true');args=ap.parse_args()
     py=sys.executable
     run([py,'-m','pip','install','--upgrade','pip'])
-    run([py,'-m','pip','install','fastapi','uvicorn[standard]','python-multipart','opencv-python-headless','pillow','numpy','pyyaml','openocr-python==0.1.5'])
+    run([py,'-m','pip','install','fastapi','uvicorn[standard]','python-multipart','opencv-python-headless','pillow','numpy','pyyaml','openocr-python==0.1.5','ultralytics','huggingface_hub'])
     # Do not silently replace the user's CUDA/PyTorch install. Install torch only if absent.
     try:import torch;print('PyTorch:',torch.__version__,'CUDA:',torch.cuda.is_available())
     except Exception:run([py,'-m','pip','install','torch','torchvision'])
