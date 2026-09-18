@@ -23,10 +23,13 @@ jobs:
           pip install pillow numpy onnx
       - name: Generate Australian OCR curriculum
         run: |
-          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 12000 --out /tmp/au_synth
+          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 50000 --seed 260918 --out /tmp/au_synth
+      - name: Build Australian camera-domain OCR adaptation set
+        run: |
+          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_camera --count 1600 --seed 260919
       - name: Train and validate checkpoint
         run: |
-          python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 5 --batch 96 --min-exact 0.72 --out /tmp/phase2_weights
+          python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 7 --batch 96 --min-exact 0.90 --min-hard-slice 0.76 --adapt-dataset /tmp/au_camera/ocr --adapt-epochs 3 --min-adapt-exact 0.80 --out /tmp/phase2_weights
       - name: Publish real trained weights
         run: |
           mkdir -p site-gate-tracker/specialist/weights
