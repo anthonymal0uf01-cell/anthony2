@@ -1,0 +1,47 @@
+name: Phase 2 AU OCR Train
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/phase2_train_au_ocr.py'
+      - '.github/workflows/phase2-au-ocr-train.yml'
+permissions:
+  contents: write
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install CPU training stack
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install pillow numpy onnx
+      - name: Generate Australian OCR curriculum
+        run: |
+          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 12000 --out /tmp/au_synth
+      - name: Train and validate checkpoint
+        run: |
+          python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 5 --batch 96 --min-exact 0.72 --out /tmp/phase2_weights
+      - name: Publish real trained weights
+        run: |
+          mkdir -p site-gate-tracker/specialist/weights
+          cp /tmp/phase2_weights/au_ocr_seed.pt site-gate-tracker/specialist/weights/
+          cp /tmp/phase2_weights/au_ocr_seed.onnx site-gate-tracker/specialist/weights/
+          cp /tmp/phase2_weights/metrics.json site-gate-tracker/specialist/weights/au_ocr_seed.metrics.json
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add site-gate-tracker/specialist/weights/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Train Phase 2 Australian OCR seed"
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase2-au-ocr-weights
+          path: /tmp/phase2_weights/
+          retention-days: 30
