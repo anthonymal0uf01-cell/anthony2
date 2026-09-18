@@ -11,7 +11,7 @@ const SESSION_ID=Date.now().toString(36).slice(-6).toUpperCase();
 const freshDefaults=()=>({version:6,inside:0,inTotal:0,outTotal:0,events:[],line:null,waiting:null,reverse:false,dogGuard:true,paused:false,anpr:true});
 let state=load();
 let stream=null,running=false,detecting=false,detector=null,detectorName='—',inferCount=0,inferTotal=0,inferWindow=performance.now(),inferEMA=0,lastInfer=0,wakeLock=null;
-let trackMap=new Map(),nextTrack=1,lastDets=[],recentHeavy=[],calMode=null,taps=[],lastUi=0;
+let trackMap=new Map(),nextTrack=1,lastDets=[],recentHeavy=[],heavyPairVotes=new Map(),calMode=null,taps=[],lastUi=0;
 let anprClient=null,anprConnectPromise=null,anprEndpoint=null,anprQueue=[],anprBusy=false,anprStatus='IDLE',anprFailures=0;
 
 function load(){try{return Object.assign(freshDefaults(),JSON.parse(localStorage.getItem('siteGateTracker')||'{}'),{version:6})}catch{return freshDefaults()}}
@@ -36,7 +36,7 @@ function render(){
  $('tracks').textContent=active.length;$('waiting').textContent=active.filter(t=>insideWaiting([t.cx,t.cy])).length;
  const ib=$('identities');ib.innerHTML='';
  if(!active.length)ib.innerHTML='<div class="small">No active identities yet</div>';
- else active.slice(0,8).forEach(t=>{const d=document.createElement('div');d.className='idrow';const plate=plateLabel(t)||'observing';const st=t.plate?'CONFIRMED':(t.anprAttempts?'FUSING':'TRACKING');d.innerHTML=`<b>#${esc(shortId(t.id))}</b><span>${esc(LABEL[t.label]||t.label)}</span><span class="plate">${esc(plate)}</span><span>${esc(st)}</span>`;ib.appendChild(d)});
+ else active.slice(0,8).forEach(t=>{const d=document.createElement('div');d.className='idrow';const plate=plateLabel(t)||'observing';const st=t.plate?'CONFIRMED':(t.anprAttempts?'FUSING':'TRACKING');const typ=t.groupId?'Truck & Dog':(LABEL[t.label]||t.label);d.innerHTML=`<b>#${esc(shortId(t.id))}</b><span>${esc(typ)}</span><span class="plate">${esc(plate)}</span><span>${esc(st)}</span>`;ib.appendChild(d)});
  $('identityDiag').textContent=active.filter(t=>t.plate).length+' confirmed';
  const eb=$('events');eb.innerHTML='';
  if(!state.events.length)eb.innerHTML='<div class="small" style="padding:12px;text-align:center">No movements yet</div>';
@@ -91,7 +91,7 @@ async function start(){
 function resize(){if(video.videoWidth){canvas.width=video.videoWidth;canvas.height=video.videoHeight}}
 video.addEventListener('loadedmetadata',resize);window.addEventListener('resize',resize);
 
-function newTrack(d,now){const c=center(d.bbox),id=SESSION_ID+'-'+(nextTrack++);return{id,bbox:d.bbox,cx:c[0],cy:c[1],vx:0,vy:0,lastSeen:now,hits:1,score:d.score,label:d.name,votes:{[d.name]:d.score},stableSide:null,candidateSide:null,candidateCount:0,lastEvent:0,plateObs:[],plateObs2:[],plate:null,plate2:null,plateConfidence:0,plate2Confidence:0,bestCandidate:null,bestCandidate2:null,anprAttempts:0,lastAnpr:0,anprPending:false,bestAnprQ:0}}
+function newTrack(d,now){const c=center(d.bbox),id=SESSION_ID+'-'+(nextTrack++);return{id,bbox:d.bbox,cx:c[0],cy:c[1],vx:0,vy:0,lastSeen:now,hits:1,score:d.score,label:d.name,votes:{[d.name]:d.score},stableSide:null,candidateSide:null,candidateCount:0,lastEvent:0,plateObs:[],plateObs2:[],plate:null,plate2:null,plateConfidence:0,plate2Confidence:0,bestCandidate:null,bestCandidate2:null,anprAttempts:0,lastAnpr:0,anprPending:false,bestAnprQ:0,groupId:null,groupMate:null}}
 function updateTracks(dets,now){
  const active=[...trackMap.values()].filter(t=>now-t.lastSeen<3500),used=new Set();dets.sort((a,b)=>area(b.bbox)-area(a.bbox));
  for(const d of dets){const c=center(d.bbox),diag=Math.hypot(d.bbox[2]-d.bbox[0],d.bbox[3]-d.bbox[1]);let best=null,bestCost=99;
@@ -103,15 +103,49 @@ function updateTracks(dets,now){
  return dets;
 }
 
+function pairKey(a,b){return [a.id,b.id].sort().join('|')}
+function updateHeavyGroups(now){
+ const a=[...trackMap.values()].filter(t=>heavy(t.label)&&now-t.lastSeen<1200&&t.hits>=3);
+ const touched=new Set();
+ for(let i=0;i<a.length;i++)for(let j=i+1;j<a.length;j++){
+   const x=a[i],y=a[j],key=pairKey(x,y),dx=y.cx-x.cx,dy=y.cy-x.cy,dist=Math.hypot(dx,dy);
+   const wx=Math.max(40,x.bbox[2]-x.bbox[0]),wy=Math.max(40,x.bbox[3]-x.bbox[1]),yx=Math.max(40,y.bbox[2]-y.bbox[0]),yy=Math.max(40,y.bbox[3]-y.bbox[1]);
+   const scale=Math.max(Math.hypot(wx,wy),Math.hypot(yx,yy)),sx=Math.hypot(x.vx,x.vy),sy=Math.hypot(y.vx,y.vy);
+   let aligned=true,cross=0;
+   if(sx>2&&sy>2){const dot=(x.vx*y.vx+x.vy*y.vy)/(sx*sy);aligned=dot>.72;const ux=(x.vx/sx+y.vx/sy)/2,uy=(x.vy/sx+y.vy/sy)/2;cross=Math.abs(dx*uy-dy*ux)}
+   const close=dist<scale*1.65&&dist>Math.min(wx,yx)*.28;
+   const laneOk=(sx<=2||sy<=2)?Math.abs(dy)<scale*1.15:cross<scale*.72;
+   if(aligned&&close&&laneOk){
+     const v=(heavyPairVotes.get(key)||0)+1;heavyPairVotes.set(key,Math.min(12,v));touched.add(key);
+     if(v>=3){
+       const gid=x.groupId||y.groupId||('G-'+SESSION_ID+'-'+[shortId(x.id),shortId(y.id)].sort().join('-'));
+       x.groupId=gid;y.groupId=gid;x.groupMate=y.id;y.groupMate=x.id;
+       if(x.plate&&y.plate&&x.plate!==y.plate){x.plate2=x.plate2||y.plate;y.plate2=y.plate2||x.plate}
+       if(x.bestCandidate&&y.bestCandidate&&x.bestCandidate!==y.bestCandidate){x.bestCandidate2=x.bestCandidate2||y.bestCandidate;y.bestCandidate2=y.bestCandidate2||x.bestCandidate}
+     }
+   }
+ }
+ for(const[k,v]of heavyPairVotes){if(!touched.has(k)){const n=v-1;if(n<=0)heavyPairVotes.delete(k);else heavyPairVotes.set(k,n)}}
+}
+function mergeGroupedEvent(t,dir){
+ if(!t.groupId)return false;
+ const mate=t.groupMate?trackMap.get(t.groupMate):null;
+ const e=state.events.find(x=>x.vehicleGroupId===t.groupId&&x.dir===dir);
+ if(!e)return false;
+ e.type='Truck & Dog';e.trackIds=[...new Set([...(e.trackIds||[e.trackId]),t.id,mate?.id].filter(Boolean))];
+ const plates=[e.plate,e.plate2,t.plate,t.plate2,t.bestCandidate,t.bestCandidate2,mate?.plate,mate?.plate2,mate?.bestCandidate].filter(Boolean);
+ const unique=[...new Set(plates)];e.plate=unique[0]||'';e.plate2=unique[1]||'';e.grouped=true;save();return true
+}
+
 function checkCrossing(t,now){
  const ln=linePx();if(!ln||state.paused||t.hits<3)return;const[a,b]=ln,p=[t.cx,t.cy],dist=signedDist(p,a,b),margin=Math.max(12,canvas.height*.015);let side=0;if(dist>margin)side=1;else if(dist<-margin)side=-1;else return;
  if(t.stableSide===null){t.stableSide=side;return}if(side===t.stableSide){t.candidateSide=null;t.candidateCount=0;return}if(t.candidateSide===side)t.candidateCount++;else{t.candidateSide=side;t.candidateCount=1}if(t.candidateCount<2)return;
  const pr=projT(p,a,b);if(pr<-.12||pr>1.12){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}if(now-t.lastEvent<1600){t.stableSide=side;t.candidateCount=0;return}
  let dir=(t.stableSide===-1&&side===1)?'IN':'OUT';if(state.reverse)dir=dir==='IN'?'OUT':'IN';
- if(state.dogGuard&&heavy(t.label)){recentHeavy=recentHeavy.filter(x=>now-x.time<2600);const dup=recentHeavy.some(x=>x.dir===dir&&x.id!==t.id&&now-x.time<1900);if(dup){t.stableSide=side;t.candidateSide=null;t.candidateCount=0;return}recentHeavy.push({time:now,dir,id:t.id})}
+ if(state.dogGuard&&heavy(t.label)){recentHeavy=recentHeavy.filter(x=>now-x.time<3000);const dup=recentHeavy.find(x=>x.dir===dir&&x.id!==t.id&&((t.groupId&&x.groupId===t.groupId&&now-x.time<2800)||(!t.groupId&&now-x.time<700)));if(dup){if(t.groupId&&dup.groupId===t.groupId)mergeGroupedEvent(t,dir);t.stableSide=side;t.candidateSide=null;t.candidateCount=0;t.lastEvent=now;return}recentHeavy.push({time:now,dir,id:t.id,groupId:t.groupId||null})}
  t.stableSide=side;t.candidateSide=null;t.candidateCount=0;t.lastEvent=now;addEvent(dir,LABEL[t.label]||t.label,'AI',t);if(state.anpr&&!t.plate)scheduleANPR(t,now,true);
 }
-function addEvent(dir,type,source='AI',track=null){if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}const e={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type,dir,inside:state.inside,source,trackId:track?.id||'',plate:track?.plate||track?.bestCandidate||'',plate2:track?.plate2||track?.bestCandidate2||'',plateConfidence:track?.plateConfidence||0,plate2Confidence:track?.plate2Confidence||0};state.events.unshift(e);state.events=state.events.slice(0,500);save();flash(dir,track?.plate||'')}
+function addEvent(dir,type,source='AI',track=null){if(dir==='IN'){state.inside++;state.inTotal++}else{state.inside=Math.max(0,state.inside-1);state.outTotal++}const e={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),iso:new Date().toISOString(),type,dir,inside:state.inside,source,trackId:track?.id||'',vehicleGroupId:track?.groupId||track?.id||'',trackIds:track?[track.id]:[],plate:track?.plate||track?.bestCandidate||'',plate2:track?.plate2||track?.bestCandidate2||'',plateConfidence:track?.plateConfidence||0,plate2Confidence:track?.plate2Confidence||0};state.events.unshift(e);state.events=state.events.slice(0,500);save();flash(dir,track?.plate||'')}
 function backfillEvents(t){let changed=false;for(const e of state.events){if(e.trackId!==t.id)continue;if(t.plate&&e.plate!==t.plate){e.plate=t.plate;e.plateConfidence=t.plateConfidence;changed=true}if(t.plate2&&e.plate2!==t.plate2){e.plate2=t.plate2;e.plate2Confidence=t.plate2Confidence;changed=true}}if(changed)save()}
 function flash(dir,plate=''){const f=$('flash');f.textContent=dir+(plate?' · '+plate:'');f.classList.add('show');setTimeout(()=>f.classList.remove('show'),900)}
 
@@ -139,7 +173,7 @@ async function pumpANPR(){
  try{const result=await callANPR(job.blob),txt=(result?.data||[]).find(x=>typeof x==='string')||'',reads=parseANPR(txt);if(reads[0])t.plateObs.push({text:reads[0].text,conf:reads[0].conf,weight:Math.max(.05,reads[0].conf*job.q),time:Date.now()});if(reads[1])t.plateObs2.push({text:reads[1].text,conf:reads[1].conf,weight:Math.max(.05,reads[1].conf*job.q),time:Date.now()});t.plateObs=t.plateObs.slice(-12);t.plateObs2=t.plateObs2.slice(-12);recomputePlate(t);anprFailures=0;anprStatus='READY'}catch(e){console.warn('ANPR failed',e);anprFailures++;anprStatus=anprFailures>2?'ERR':'RETRY';anprClient=null;anprConnectPromise=null}finally{t.anprPending=false;anprBusy=false;render();setTimeout(pumpANPR,250)}
 }
 
-async function infer(now){if(detecting||!detector)return;detecting=true;const t0=performance.now();try{const dets=await detector.predict();lastDets=updateTracks(dets,now);for(const d of lastDets){checkCrossing(d.track,now);scheduleANPR(d.track,now,false)}inferCount++;inferTotal++;const dt=performance.now()-t0;inferEMA=inferEMA?inferEMA*.82+dt*.18:dt;if(detector.kind==='yolo26'&&inferTotal>6&&inferEMA>2600){console.warn('YOLO26 too slow, switching to fallback');await loadSSD()}}catch(e){console.warn('Inference error',e);if(detector?.kind==='yolo26'){try{await loadSSD()}catch{}}}finally{detecting=false}}
+async function infer(now){if(detecting||!detector)return;detecting=true;const t0=performance.now();try{const dets=await detector.predict();lastDets=updateTracks(dets,now);updateHeavyGroups(now);for(const d of lastDets){checkCrossing(d.track,now);scheduleANPR(d.track,now,false)}inferCount++;inferTotal++;const dt=performance.now()-t0;inferEMA=inferEMA?inferEMA*.82+dt*.18:dt;if(detector.kind==='yolo26'&&inferTotal>6&&inferEMA>2600){console.warn('YOLO26 too slow, switching to fallback');await loadSSD()}}catch(e){console.warn('Inference error',e);if(detector?.kind==='yolo26'){try{await loadSSD()}catch{}}}finally{detecting=false}}
 function loop(now){if(!running)return;if(now-lastInfer>Math.max(180,Math.min(650,inferEMA*.45||250))){lastInfer=now;infer(now)}draw(now);if(now-inferWindow>1000){$('hz').textContent=inferCount;inferCount=0;inferWindow=now}if(now-lastUi>300){lastUi=now;render()}requestAnimationFrame(loop)}
 
 function draw(now){
@@ -164,6 +198,6 @@ $('manualOut').onclick=()=>addEvent('OUT',$('manualType').value,'MANUAL');
 $('undo').onclick=()=>{const e=state.events.shift();if(!e)return;if(e.dir==='IN'){state.inTotal=Math.max(0,state.inTotal-1);state.inside=Math.max(0,state.inside-1)}else{state.outTotal=Math.max(0,state.outTotal-1);state.inside++}save()};
 $('capture').onclick=async()=>{const t=[...trackMap.values()].filter(x=>performance.now()-x.lastSeen<1800).sort((a,b)=>area(b.bbox)-area(a.bbox))[0];if(!t){$('hint').textContent='No active vehicle to capture.';return}const c=await cropTrack(t);if(!c)return;const a=document.createElement('a');a.href=URL.createObjectURL(c.blob);a.download=`vehicle-${t.id}-${t.plate||'unresolved'}.jpg`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
 $('export').onclick=()=>{const head=['time','iso','type','direction','inside','track_id','plate','secondary_plate','plate_confidence','secondary_confidence','source'];const rows=state.events.slice().reverse().map(e=>[e.time,e.iso,e.type,e.dir,e.inside,e.trackId||'',e.plate||'',e.plate2||'',e.plateConfidence||'',e.plate2Confidence||'',e.source||'']);const csv=[head,...rows].map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const b=new Blob([csv],{type:'text/csv'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='site-gate-'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
-$('reset').onclick=()=>{if(!confirm('Reset this shift? Counts, movements and plate memory will be cleared.'))return;for(const j of anprQueue)j.t.anprPending=false;state=freshDefaults();trackMap.clear();anprQueue=[];recentHeavy=[];localStorage.removeItem('siteGateTracker');save()};
+$('reset').onclick=()=>{if(!confirm('Reset this shift? Counts, movements and plate memory will be cleared.'))return;for(const j of anprQueue)j.t.anprPending=false;state=freshDefaults();trackMap.clear();anprQueue=[];recentHeavy=[];heavyPairVotes.clear();localStorage.removeItem('siteGateTracker');save()};
 
 render();
