@@ -1,0 +1,56 @@
+name: Phase 2 AU Vehicle Priors
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
+      - 'site-gate-tracker/specialist/bootstrap_au_data.py'
+      - 'site-gate-tracker/specialist/build_au_priors.py'
+      - '.github/workflows/phase2-au-vehicle-priors.yml'
+concurrency:
+  group: phase2-au-vehicle-priors
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install profile stack
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install ultralytics pillow numpy
+      - name: Download current Australian official data
+        run: |
+          python site-gate-tracker/specialist/bootstrap_au_data.py --out /tmp/au_official
+      - name: Build official priors
+        run: |
+          python site-gate-tracker/specialist/build_au_priors.py /tmp/au_official --out /tmp/au_official_priors.json
+      - name: Build broad live NSW visual profile
+        run: |
+          python site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py --out /tmp/au_vehicle_profile.json --limit 400
+      - name: Publish priors
+        run: |
+          mkdir -p site-gate-tracker/specialist/weights
+          cp /tmp/au_vehicle_profile.json site-gate-tracker/specialist/weights/
+          cp /tmp/au_official_priors.json site-gate-tracker/specialist/weights/
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git pull --rebase origin main
+          git add site-gate-tracker/specialist/weights/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Refresh Phase 2 NSW vehicle priors"
+          git push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase2-au-vehicle-priors
+          path: |
+            /tmp/au_vehicle_profile.json
+            /tmp/au_official_priors.json
+          retention-days: 30
