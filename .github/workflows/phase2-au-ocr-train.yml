@@ -28,7 +28,7 @@ jobs:
           pip install pillow numpy onnx ultralytics
       - name: Generate Australian OCR curriculum
         run: |
-          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 75000 --seed 260918 --out /tmp/au_synth
+          python site-gate-tracker/specialist/generate_au_synthetic_plates.py --count 50000 --seed 260918 --out /tmp/au_synth
       - name: Build Australian camera-domain OCR adaptation set
         run: |
           python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_camera --count 6000 --seed 260919 --ocr-min-width 64 --ocr-min-height 18 --require-ocr
