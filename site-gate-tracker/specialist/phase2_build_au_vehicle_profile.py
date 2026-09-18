@@ -21,7 +21,7 @@ def req(url,timeout=20):
     with urllib.request.urlopen(r,timeout=timeout) as x:return x.read()
 
 def urls(node,out=None):
-    out=out or []
+    if out is None: out=[]
     if isinstance(node,dict):
         for k,v in node.items():
             if isinstance(v,str) and v.startswith("http") and (any(z in k.lower() for z in ("image","href","url")) or any(z in v.lower() for z in (".jpg",".jpeg","camera","webcam","livetraffic"))):
