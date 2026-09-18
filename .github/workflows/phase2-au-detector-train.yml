@@ -6,6 +6,7 @@ on:
       - 'site-gate-tracker/specialist/export_hf_plate_detection_yolo.py'
       - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
       - 'site-gate-tracker/specialist/phase2_train_au_plate_detector.py'
+      - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
       - '.github/workflows/phase2-au-detector-train.yml'
 permissions:
   contents: write
@@ -29,6 +30,9 @@ jobs:
       - name: Build Australian road-domain detector set
         run: |
           python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 800
+      - name: Build live Australian vehicle profile
+        run: |
+          python site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py --out /tmp/phase2_detector/au_vehicle_profile.json --limit 100
       - name: Train generic to Australian detector
         run: |
           python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/hf_plate --au /tmp/au_plate --out /tmp/phase2_detector
@@ -37,6 +41,7 @@ jobs:
           mkdir -p site-gate-tracker/specialist/weights
           cp /tmp/phase2_detector/au_plate_detector.pt site-gate-tracker/specialist/weights/
           cp /tmp/phase2_detector/au_plate_detector.metrics.json site-gate-tracker/specialist/weights/
+          cp /tmp/phase2_detector/au_vehicle_profile.json site-gate-tracker/specialist/weights/
           git config user.name github-actions
           git config user.email github-actions@github.com
           git pull --rebase origin main
