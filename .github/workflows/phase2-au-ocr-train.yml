@@ -6,6 +6,9 @@ on:
       - 'site-gate-tracker/specialist/phase2_train_au_ocr.py'
       - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
       - '.github/workflows/phase2-au-ocr-train.yml'
+concurrency:
+  group: phase2-au-ocr
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
