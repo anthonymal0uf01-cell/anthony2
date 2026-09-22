@@ -69,3 +69,56 @@ VIN / make / model / variant / vehicle class / specifications
 ```
 
 It contains no owner/person fields. Plate/VIN enrichment should use an authorised data source and record the evidence source and applicable usage terms.
+
+
+## Live NSW street-camera collection
+
+TfNSW publishes a current GeoJSON camera index. The collector repeatedly samples those camera images and turns useful frames into vehicle observations:
+
+```text
+TfNSW live camera index
+        ↓
+current JPEG frame
+        ↓
+unchanged-frame rejection
+        ↓
+YOLO vehicle detection
+        ↓
+vehicle crop + perceptual deduplication
+        ↓
+Australian plate detector
+        ↓
+Australian OCR seed
+        ↓
+machine_read plate observation
+        ↓
+plate→VIN resolver when independently verified
+```
+
+One current pass across up to 12 cameras:
+
+```bash
+python street_camera_collector.py --camera-limit 12 --cycles 1
+```
+
+Sample Sydney metropolitan cameras every 15 seconds:
+
+```bash
+python street_camera_collector.py \
+  --region SYD_MET \
+  --camera-limit 20 \
+  --interval 15 \
+  --cycles 0
+```
+
+List the current camera catalogue without running inference:
+
+```bash
+python street_camera_collector.py --list-cameras
+```
+
+If you have a TfNSW API key, set `TFNSW_API_KEY`; otherwise the collector falls back to the public Live Traffic camera GeoJSON.
+
+The collector records unavailable cameras rather than failing the entire run. Full street frames are discarded by default after vehicle crops are made; use `--keep-full-frames` only when there is a specific reason to retain them.
+
+Any registration read directly from a street image remains `machine_read`. It becomes a VIN-backed training label only after independent authorised resolution.
