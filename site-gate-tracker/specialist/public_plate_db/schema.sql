@@ -186,9 +186,30 @@ CREATE TABLE IF NOT EXISTS street_vehicle_observations (
   bbox_y2 REAL,
   crop_sha256 TEXT,
   crop_perceptual_hash TEXT,
+  crop_width INTEGER,
+  crop_height INTEGER,
+  bbox_area_fraction REAL,
+  edge_contact INTEGER,
+  quality_score REAL,
+  training_eligible INTEGER DEFAULT 0,
+  quality_flags_json TEXT,
   provisional_plate TEXT,
   provisional_plate_confidence REAL,
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS camera_yield (
+  camera_id TEXT PRIMARY KEY,
+  camera_title TEXT,
+  camera_region TEXT,
+  attempts INTEGER DEFAULT 0,
+  live_frames INTEGER DEFAULT 0,
+  detected_vehicles INTEGER DEFAULT 0,
+  retained_crops INTEGER DEFAULT 0,
+  training_eligible_crops INTEGER DEFAULT 0,
+  plate_reads INTEGER DEFAULT 0,
+  score REAL DEFAULT 0,
+  updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_camera_frames_camera_time
@@ -197,3 +218,5 @@ CREATE INDEX IF NOT EXISTS idx_street_obs_frame
   ON street_vehicle_observations(frame_id);
 CREATE INDEX IF NOT EXISTS idx_street_obs_plate
   ON street_vehicle_observations(provisional_plate);
+
+CREATE INDEX IF NOT EXISTS idx_camera_yield_score ON camera_yield(score DESC);
