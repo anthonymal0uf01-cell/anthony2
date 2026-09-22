@@ -5,6 +5,8 @@ on:
       - 'site-gate-tracker/specialist/build_au_camera_plate_composites.py'
       - 'site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py'
       - 'site-gate-tracker/specialist/public_plate_db/street_camera_collector.py'
+      - 'site-gate-tracker/specialist/public_plate_db/build_street_adaptation_dataset.py'
+      - 'site-gate-tracker/specialist/public_plate_db/street_camera_seed_profile.json'
       - 'site-gate-tracker/specialist/public_plate_db/schema.sql'
       - '.github/workflows/phase2-camera-source.yml'
   workflow_dispatch:
@@ -14,7 +16,7 @@ permissions:
 jobs:
   camera-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,7 +97,8 @@ jobs:
           python site-gate-tracker/specialist/public_plate_db/street_camera_collector.py \
             --db /tmp/street-live/live.sqlite \
             --out /tmp/street-live/crops \
-            --camera-limit 30 \
+            --camera-limit 60 \
+            --scan-limit 120 \
             --cycles 1 \
             --vehicle-model yolo11n.pt
       - name: Summarise live inference
@@ -105,18 +108,26 @@ jobs:
           python - <<'PY'
           import json, os, sqlite3
           db="/tmp/street-live/live.sqlite"
-          out={"frames":0,"live_frames":0,"vehicles":0,"plates":0,"errors":0}
+          out={"frames":0,"live_frames":0,"vehicles":0,"training_eligible":0,"plates":0,"errors":0}
           if os.path.exists(db):
               con=sqlite3.connect(db)
               out["frames"]=con.execute("select count(*) from camera_frames").fetchone()[0]
               out["live_frames"]=con.execute("select count(*) from camera_frames where http_status=200 and error is null").fetchone()[0]
               out["vehicles"]=con.execute("select count(*) from street_vehicle_observations").fetchone()[0]
+              out["training_eligible"]=con.execute("select count(*) from street_vehicle_observations where training_eligible=1").fetchone()[0]
               out["plates"]=con.execute("select count(*) from plate_observations where text_status='machine_read'").fetchone()[0]
               out["errors"]=con.execute("select count(*) from camera_frames where error is not null or http_status!=200").fetchone()[0]
           print(json.dumps(out))
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
               for k,v in out.items(): f.write(f"{k}={v}\n")
           PY
+      - name: Build controlled adaptation dataset
+        if: always()
+        run: |
+          python site-gate-tracker/specialist/public_plate_db/build_street_adaptation_dataset.py \
+            --db /tmp/street-live/live.sqlite \
+            --out /tmp/street-live/adaptation \
+            --min-quality 0.52
       - name: Publish full-inference status
         if: always()
         env:
@@ -127,16 +138,18 @@ jobs:
           FRAMES: ${{ steps.summary.outputs.frames }}
           LIVE_FRAMES: ${{ steps.summary.outputs.live_frames }}
           VEHICLES: ${{ steps.summary.outputs.vehicles }}
+          ELIGIBLE: ${{ steps.summary.outputs.training_eligible }}
           PLATES: ${{ steps.summary.outputs.plates }}
         run: |
           python - <<'PY'
           import json, os, urllib.request
           live=int(os.environ.get("LIVE_FRAMES") or 0)
           vehicles=int(os.environ.get("VEHICLES") or 0)
+          eligible=int(os.environ.get("ELIGIBLE") or 0)
           plates=int(os.environ.get("PLATES") or 0)
           ok=os.environ.get("INFER_OUTCOME")=="success" and live>=1 and vehicles>=1
           state="success" if ok else "failure"
-          desc=f"live={live} vehicles={vehicles} plates={plates}"
+          desc=f"live={live} vehicles={vehicles} eligible={eligible} plates={plates}"
           body=json.dumps({
             "state":state,
             "context":"phase2-camera-source/full-inference",
@@ -161,5 +174,6 @@ jobs:
           path: |
             /tmp/street-live/live.sqlite
             /tmp/street-live/crops
+            /tmp/street-live/adaptation
           if-no-files-found: ignore
           retention-days: 3
