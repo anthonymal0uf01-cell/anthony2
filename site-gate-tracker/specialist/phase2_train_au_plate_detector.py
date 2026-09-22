@@ -5,7 +5,7 @@ from pathlib import Path
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--hf",type=Path,required=True)
+    ap.add_argument("--hf",type=Path,default=None)
     ap.add_argument("--au",type=Path,required=True)
     ap.add_argument("--out",type=Path,required=True)
     ap.add_argument("--model",default="yolo26n.pt")
@@ -36,6 +36,8 @@ def main():
     # Optional generic warm-up. For focused improvement of an already-deployed AU
     # checkpoint, pass --warmup-epochs 0 and --model <current checkpoint>.
     if args.warmup_epochs > 0:
+        if args.hf is None:
+            raise SystemExit("--hf is required when --warmup-epochs > 0")
         r1=m.train(data=str(args.hf/"data.yaml"),epochs=args.warmup_epochs,imgsz=args.warmup_imgsz,batch=args.warmup_batch,workers=2,
             project=str(args.out),name="01_generic_warmup",plots=False,cache=False,verbose=False,
             patience=max(2,args.warmup_epochs),cos_lr=True,close_mosaic=1)
@@ -126,9 +128,9 @@ def main():
       "focus_batch":args.focus_batch,
       "focus_lr":args.focus_lr,
       "dataset_counts":{
-        "generic_train":count_images(args.hf,"train"),
-        "generic_val":count_images(args.hf,"val"),
-        "generic_test":count_images(args.hf,"test"),
+        "generic_train":count_images(args.hf,"train") if args.hf is not None else 0,
+        "generic_val":count_images(args.hf,"val") if args.hf is not None else 0,
+        "generic_test":count_images(args.hf,"test") if args.hf is not None else 0,
         "au_train":count_images(args.au,"train"),
         "au_val":count_images(args.au,"val"),
         "au_test":count_images(args.au,"test"),
