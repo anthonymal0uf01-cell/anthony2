@@ -74,13 +74,9 @@ def run_rfdetr(repo_id, filename, images, threshold=.05):
     model_path=hf_hub_download(repo_id=repo_id,filename=filename)
     sess=ort.InferenceSession(model_path,providers=["CPUExecutionProvider"])
     inp=sess.get_inputs()[0]
-    outs=sess.get_outputs()
-    names=[o.name for o in outs]
-    boxes_i=next((i for i,n in enumerate(names) if "dets" in n.lower()),0)
-    logits_i=next((i for i,n in enumerate(names) if "labels" in n.lower()),1 if len(outs)>1 else 0)
     ish=inp.shape
-    H=int(ish[2]) if isinstance(ish[2],int) else 576
-    W=int(ish[3]) if isinstance(ish[3],int) else 576
+    H=int(ish[2]) if len(ish)>2 and isinstance(ish[2],int) else 576
+    W=int(ish[3]) if len(ish)>3 and isinstance(ish[3],int) else 576
     out={}
     for p in images:
         im=Image.open(p).convert("RGB")
@@ -88,36 +84,66 @@ def run_rfdetr(repo_id, filename, images, threshold=.05):
         x=np.asarray(im.resize((W,H),Image.Resampling.BILINEAR),dtype=np.float32)/255.0
         x=np.transpose(x,(2,0,1))[None]
         raw=sess.run(None,{inp.name:x})
-        boxes=np.squeeze(np.asarray(raw[boxes_i]))
-        logits=np.squeeze(np.asarray(raw[logits_i]))
-        # RF-DETR exports can retain singleton query/head dimensions depending on
-        # optimization pass. Collapse them while preserving the final box/class axes.
+        arrs=[np.asarray(z) for z in raw]
+        # Identify boxes by tensor geometry, not export order/name. Several RF-DETR
+        # community exports reverse outputs or squeeze score/class dimensions.
+        box_candidates=[i for i,a in enumerate(arrs) if a.ndim>=2 and a.shape[-1]==4]
+        if not box_candidates:
+            # Last-resort: choose an array whose total size is divisible by 4 and
+            # which is not just a 300-query score vector.
+            box_candidates=[i for i,a in enumerate(arrs) if a.size>=4 and a.size%4==0 and a.size!=300]
+        if not box_candidates:
+            raise RuntimeError("RF-DETR: no box tensor; shapes="+str([a.shape for a in arrs]))
+        bi=box_candidates[0]
+        other=[i for i in range(len(arrs)) if i!=bi]
+        if not other:
+            raise RuntimeError("RF-DETR: no score/logit tensor")
+        li=other[0]
+
+        boxes=np.squeeze(arrs[bi])
         if boxes.ndim==1:
-            boxes=boxes.reshape(1,4)
+            if boxes.size%4: raise RuntimeError("RF-DETR invalid box size "+str(boxes.size))
+            boxes=boxes.reshape(-1,4)
         elif boxes.ndim>2:
             boxes=boxes.reshape(-1,4)
-        if logits.ndim==0:
-            logits=logits.reshape(1,1)
-        elif logits.ndim==1:
-            logits=logits.reshape(-1,1)
-        elif logits.ndim>2:
-            logits=logits.reshape(boxes.shape[0],-1)
-        if logits.shape[0] != boxes.shape[0]:
-            logits=logits.reshape(boxes.shape[0],-1)
-        # RF-DETR ONNX: normalized cxcywh boxes + raw per-class logits.
-        if logits.shape[-1]>1:
-            fg=logits[:,:-1]  # contiguous-ID checkpoints conventionally keep bg last
+
+        score_arr=np.squeeze(arrs[li])
+        if score_arr.ndim==0:
+            scores=np.repeat(float(score_arr),boxes.shape[0])
+        elif score_arr.ndim==1:
+            if score_arr.shape[0]==boxes.shape[0]:
+                scores=score_arr.astype(np.float32)
+                if np.any((scores<0)|(scores>1)):
+                    scores=1.0/(1.0+np.exp(-np.clip(scores,-88,88)))
+            else:
+                score_arr=score_arr.reshape(boxes.shape[0],-1)
+                probs=1.0/(1.0+np.exp(-np.clip(score_arr,-88,88)))
+                scores=probs.max(axis=-1)
         else:
-            fg=logits
-        probs=1.0/(1.0+np.exp(-np.clip(fg,-88,88)))
-        scores=probs.max(axis=-1)
+            score_arr=score_arr.reshape(boxes.shape[0],-1)
+            # If already probabilities, preserve them. Otherwise sigmoid raw logits.
+            if np.all((score_arr>=0)&(score_arr<=1)):
+                probs=score_arr
+            else:
+                probs=1.0/(1.0+np.exp(-np.clip(score_arr,-88,88)))
+            # Drop a likely background slot only when there is >1 class slot.
+            if probs.shape[-1]>1:
+                probs=probs[:,:-1]
+            scores=probs.max(axis=-1)
+
         rows=[]
         for b,cf in zip(boxes,scores):
             cf=float(cf)
             if cf<threshold: continue
             cx,cy,bw,bh=[float(v) for v in b]
-            x1=(cx-bw/2)*ow; y1=(cy-bh/2)*oh
-            x2=(cx+bw/2)*ow; y2=(cy+bh/2)*oh
+            # RF-DETR exports normalized cxcywh. Tolerate accidental absolute boxes.
+            if max(abs(cx),abs(cy),abs(bw),abs(bh))<=2.0:
+                x1=(cx-bw/2)*ow; y1=(cy-bh/2)*oh
+                x2=(cx+bw/2)*ow; y2=(cy+bh/2)*oh
+            else:
+                sx=ow/max(1.0,W); sy=oh/max(1.0,H)
+                x1=(cx-bw/2)*sx; y1=(cy-bh/2)*sy
+                x2=(cx+bw/2)*sx; y2=(cy+bh/2)*sy
             ww=x2-x1;hh=y2-y1;ar=ww/max(1,hh)
             if ww*hh<20 or ar<1.0 or ar>10: continue
             rows.append({"box":[x1,y1,x2,y2],"conf":cf})
@@ -188,15 +214,24 @@ def main():
     for name,(kind,m) in models.items():
         results[name]=run_ultra(m,images,imgsz=768,conf=.05)
 
-    results["hf_yolos_rego"]=run_yolos("nickmuchi/yolos-small-rego-plates-detection",images,threshold=.05)
-    results["litealpr_2026"]=run_litealpr(images,conf=.05)
-    results["rfdetr_alpr_2026"]=run_rfdetr(
-        "autolane/rfdetr-alpr","rfdetr_alpr_optimized.onnx",images,threshold=.05)
+    errors={}
+    candidates=[
+      ("hf_yolos_rego",lambda:run_yolos("nickmuchi/yolos-small-rego-plates-detection",images,threshold=.05)),
+      ("litealpr_2026",lambda:run_litealpr(images,conf=.05)),
+      ("rfdetr_alpr_2026",lambda:run_rfdetr("autolane/rfdetr-alpr","rfdetr_alpr_optimized.onnx",images,threshold=.05)),
+    ]
+    for name,fn in candidates:
+        try:
+            results[name]=fn()
+        except Exception as e:
+            errors[name]=repr(e)
+            print("MODEL_FAILED",name,repr(e),flush=True)
 
     summary={k:stats(v) for k,v in results.items()}
+    if errors: summary["_errors"]=errors
     (a.out/"summary.json").write_text(json.dumps(summary,indent=2))
     (a.out/"detections.json").write_text(json.dumps(results,indent=2))
-    overlay_grid(images,results,a.out/"overlays.jpg")
+    overlay_grid(images,{k:v for k,v in results.items()},a.out/"overlays.jpg")
     print(json.dumps(summary,indent=2))
 
 if __name__=="__main__":
