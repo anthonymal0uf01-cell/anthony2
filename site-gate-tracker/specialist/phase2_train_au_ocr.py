@@ -188,6 +188,9 @@ def main():
                     help="Optional deployed OCR checkpoint to fine-tune instead of relearning from scratch.")
     ap.add_argument("--min-tiny-exact",type=float,default=.40)
     ap.add_argument("--min-tiny-improvement",type=float,default=.005)
+    ap.add_argument("--specialist-mode",action="store_true",
+                    help="Publish a separate tiny-plate specialist instead of replacing the general OCR.")
+    ap.add_argument("--specialist-min-general-exact",type=float,default=.82)
     args=ap.parse_args()
     torch.manual_seed(1404);random.seed(1404);np.random.seed(1404)
     torch.set_num_threads(max(1,min(4,torch.get_num_threads())))
@@ -323,22 +326,32 @@ def main():
     score=metrics["exact_match"]
     ckpt={"state_dict":state,"alphabet":ALPHABET,"input_width":160,"input_height":48,"metrics":metrics,
           "calibrator":calibrator,"model":"TinyAUOCR-v2-calibrated"}
-    torch.save(ckpt,args.out/"au_ocr_seed.pt")
+    pt_name="au_ocr_tiny.pt" if args.specialist_mode else "au_ocr_seed.pt"
+    onnx_name="au_ocr_tiny.onnx" if args.specialist_mode else "au_ocr_seed.onnx"
+    metrics_name="au_ocr_tiny.metrics.json" if args.specialist_mode else "metrics.json"
+    ckpt["specialist_mode"]=bool(args.specialist_mode)
+    ckpt["specialist_target"]="tiny_plate_20_64" if args.specialist_mode else "general"
+    torch.save(ckpt,args.out/pt_name)
     model.eval()
     # PyTorch checkpoint is the Phase-2 promotion artifact. ONNX is optional;
     # export incompatibilities must never discard a successfully trained model.
     try:
         dummy=torch.zeros(1,1,48,160)
-        torch.onnx.export(model,dummy,args.out/"au_ocr_seed.onnx",input_names=["image"],output_names=["logits"],opset_version=17,dynamo=False)
+        torch.onnx.export(model,dummy,args.out/onnx_name,input_names=["image"],output_names=["logits"],opset_version=17,dynamo=False)
     except Exception as e:
         print(f"ONNX_OPTIONAL_EXPORT_FAILED: {e}", flush=True)
-    (args.out/"metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
+    (args.out/metrics_name).write_text(json.dumps(metrics,indent=2),encoding="utf-8")
     (args.out/"README.txt").write_text(
         "Australian OCR seed trained from NSW/NHV synthetic curriculum.\n"
         f"validation exact_match={score:.4f} cer={metrics['cer']:.4f}\n"
         "This is a real phase-2 checkpoint; full SVTRv2 GPU fine-tuning remains the higher-capacity successor.\n",
         encoding="utf-8")
-    if score < args.min_exact:
+    if args.specialist_mode:
+        if score < args.specialist_min_general_exact:
+            raise SystemExit(
+                f"specialist gate failed: retained general exact {score:.3f} < "
+                f"{args.specialist_min_general_exact:.3f}")
+    elif score < args.min_exact:
         raise SystemExit(f"promotion gate failed: exact_match {score:.3f} < {args.min_exact:.3f}")
     if metrics["worst_hard_slice"] < args.min_hard_slice:
         raise SystemExit(f"promotion gate failed: hard-slice exact {metrics['worst_hard_slice']:.3f} < {args.min_hard_slice:.3f}")
