@@ -22,6 +22,13 @@ def main():
     ap.add_argument("--tiny-max-width",type=int,default=64)
     ap.add_argument("--min-tiny-recall",type=float,default=.35)
     ap.add_argument("--min-tiny-improvement",type=float,default=.005)
+    ap.add_argument("--focus-dataset",type=Path,default=None,
+                    help="Optional vehicle-crop tiny-plate dataset matching live inference geometry.")
+    ap.add_argument("--focus-epochs",type=int,default=0)
+    ap.add_argument("--focus-imgsz",type=int,default=640)
+    ap.add_argument("--focus-batch",type=int,default=16)
+    ap.add_argument("--focus-lr",type=float,default=.0015)
+    ap.add_argument("--min-focus-recall",type=float,default=.45)
     args=ap.parse_args()
     from ultralytics import YOLO
     args.out.mkdir(parents=True,exist_ok=True)
@@ -40,8 +47,27 @@ def main():
         patience=max(4,args.au_epochs//3),cos_lr=True,verbose=False)
     best=Path(r2.save_dir)/"weights"/"best.pt"
     mb=YOLO(str(best))
-    # Promotion is measured on the untouched Australian test split.
+
+    # Stage 3: focus on the exact geometry used by live inference:
+    # vehicle crop -> upscaled tiny-plate detector.
+    if args.focus_dataset is not None and args.focus_epochs > 0:
+        r3=mb.train(data=str(args.focus_dataset/"data.yaml"),epochs=args.focus_epochs,
+            imgsz=args.focus_imgsz,batch=args.focus_batch,workers=2,
+            project=str(args.out),name="03_vehicle_crop_focus",plots=False,cache=False,
+            close_mosaic=max(1,args.focus_epochs//2),patience=max(3,args.focus_epochs//2),
+            cos_lr=True,lr0=args.focus_lr,lrf=.10,verbose=False)
+        best=Path(r3.save_dir)/"weights"/"best.pt"
+        mb=YOLO(str(best))
+
+    # Promotion is still measured on the untouched general Australian test split.
     v=mb.val(data=str(args.au/"data.yaml"),split="test",imgsz=args.au_imgsz,plots=False,verbose=False)
+
+    focus_metrics=None
+    if args.focus_dataset is not None and (args.focus_dataset/"data.yaml").exists():
+        fv=mb.val(data=str(args.focus_dataset/"data.yaml"),split="test",
+                  imgsz=args.focus_imgsz,plots=False,verbose=False)
+        focus_metrics={"map50":float(fv.box.map50),"map50_95":float(fv.box.map),
+                       "precision":float(fv.box.mp),"recall":float(fv.box.mr)}
 
     # Build a deterministic test subset containing the tiny 20..N px plates that caused
     # the live TfNSW failure. Candidate and deployed baseline are evaluated identically.
@@ -49,7 +75,8 @@ def main():
     tiny_img=tiny_root/"images"; tiny_lab=tiny_root/"labels"
     tiny_img.mkdir(parents=True,exist_ok=True); tiny_lab.mkdir(parents=True,exist_ok=True)
     tiny_n=0
-    mf=args.au/"manifest.jsonl"
+    eval_root=args.focus_dataset if args.focus_dataset is not None else args.au
+    mf=eval_root/"manifest.jsonl"
     if mf.exists():
         for line in mf.read_text(encoding="utf-8").splitlines():
             if not line.strip(): continue
@@ -60,8 +87,8 @@ def main():
             objs=rec.get("objects") or []
             widths=[float(o.get("bbox",[0,0,0,0])[2]) for o in objs if o.get("bbox")]
             if not widths or not any(20 <= w <= args.tiny_max_width for w in widths): continue
-            src=args.au/rel
-            lab=args.au/"test"/"labels"/(src.stem+".txt")
+            src=eval_root/rel
+            lab=eval_root/"test"/"labels"/(src.stem+".txt")
             if src.exists() and lab.exists():
                 shutil.copy2(src,tiny_img/src.name); shutil.copy2(lab,tiny_lab/lab.name); tiny_n+=1
     tiny_yaml=tiny_root/"data.yaml"
@@ -70,12 +97,12 @@ def main():
         encoding="utf-8")
     tiny_candidate=None; tiny_baseline=None
     if tiny_n>=25:
-        tv=mb.val(data=str(tiny_yaml),split="val",imgsz=args.au_imgsz,plots=False,verbose=False)
+        tv=mb.val(data=str(tiny_yaml),split="val",imgsz=args.focus_imgsz if args.focus_dataset is not None else args.au_imgsz,plots=False,verbose=False)
         tiny_candidate={"n_images":tiny_n,"map50":float(tv.box.map50),"recall":float(tv.box.mr),
                         "precision":float(tv.box.mp)}
         if args.baseline is not None and args.baseline.exists():
             bm=YOLO(str(args.baseline))
-            bv=bm.val(data=str(tiny_yaml),split="val",imgsz=args.au_imgsz,plots=False,verbose=False)
+            bv=bm.val(data=str(tiny_yaml),split="val",imgsz=args.focus_imgsz if args.focus_dataset is not None else args.au_imgsz,plots=False,verbose=False)
             tiny_baseline={"n_images":tiny_n,"map50":float(bv.box.map50),"recall":float(bv.box.mr),
                            "precision":float(bv.box.mp)}
 
@@ -93,13 +120,21 @@ def main():
       "evaluation_split":"test",
       "tiny_plate_eval":tiny_candidate,
       "baseline_tiny_plate_eval":tiny_baseline,
+      "focus_vehicle_crop_eval":focus_metrics,
+      "focus_epochs":args.focus_epochs,
+      "focus_imgsz":args.focus_imgsz,
+      "focus_batch":args.focus_batch,
+      "focus_lr":args.focus_lr,
       "dataset_counts":{
         "generic_train":count_images(args.hf,"train"),
         "generic_val":count_images(args.hf,"val"),
         "generic_test":count_images(args.hf,"test"),
         "au_train":count_images(args.au,"train"),
         "au_val":count_images(args.au,"val"),
-        "au_test":count_images(args.au,"test")
+        "au_test":count_images(args.au,"test"),
+        "focus_train":count_images(args.focus_dataset,"train") if args.focus_dataset is not None else 0,
+        "focus_val":count_images(args.focus_dataset,"val") if args.focus_dataset is not None else 0,
+        "focus_test":count_images(args.focus_dataset,"test") if args.focus_dataset is not None else 0
       }
     }
     shutil.copy2(best,args.out/"au_plate_detector.pt")
@@ -117,6 +152,10 @@ def main():
     if tiny_candidate["recall"] < args.min_tiny_recall:
         raise SystemExit(
             f"Detector promotion gate failed: tiny recall={tiny_candidate['recall']:.3f} < {args.min_tiny_recall:.3f}")
+    if focus_metrics is not None and focus_metrics["recall"] < args.min_focus_recall:
+        raise SystemExit(
+            f"Detector promotion gate failed: vehicle-crop focus recall={focus_metrics['recall']:.3f} "
+            f"< {args.min_focus_recall:.3f}")
     if tiny_baseline is not None:
         improvement=tiny_candidate["recall"]-tiny_baseline["recall"]
         metrics["tiny_recall_improvement"]=improvement
