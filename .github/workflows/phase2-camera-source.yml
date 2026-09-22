@@ -14,7 +14,7 @@ permissions:
 jobs:
   camera-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,3 +83,83 @@ jobs:
       - name: Fail job if live camera gate failed
         if: steps.live.outcome != 'success'
         run: exit 1
+
+      - name: Install live inference dependencies
+        run: pip install ultralytics onnxruntime numpy
+      - name: Run full live vehicle inference
+        id: infer
+        continue-on-error: true
+        run: |
+          rm -rf /tmp/street-live
+          mkdir -p /tmp/street-live
+          python site-gate-tracker/specialist/public_plate_db/street_camera_collector.py \
+            --db /tmp/street-live/live.sqlite \
+            --out /tmp/street-live/crops \
+            --camera-limit 30 \
+            --cycles 1 \
+            --vehicle-model yolo11n.pt
+      - name: Summarise live inference
+        id: summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, sqlite3
+          db="/tmp/street-live/live.sqlite"
+          out={"frames":0,"live_frames":0,"vehicles":0,"plates":0,"errors":0}
+          if os.path.exists(db):
+              con=sqlite3.connect(db)
+              out["frames"]=con.execute("select count(*) from camera_frames").fetchone()[0]
+              out["live_frames"]=con.execute("select count(*) from camera_frames where http_status=200 and error is null").fetchone()[0]
+              out["vehicles"]=con.execute("select count(*) from street_vehicle_observations").fetchone()[0]
+              out["plates"]=con.execute("select count(*) from plate_observations where text_status='machine_read'").fetchone()[0]
+              out["errors"]=con.execute("select count(*) from camera_frames where error is not null or http_status!=200").fetchone()[0]
+          print(json.dumps(out))
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+              for k,v in out.items(): f.write(f"{k}={v}\n")
+          PY
+      - name: Publish full-inference status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          INFER_OUTCOME: ${{ steps.infer.outcome }}
+          FRAMES: ${{ steps.summary.outputs.frames }}
+          LIVE_FRAMES: ${{ steps.summary.outputs.live_frames }}
+          VEHICLES: ${{ steps.summary.outputs.vehicles }}
+          PLATES: ${{ steps.summary.outputs.plates }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          live=int(os.environ.get("LIVE_FRAMES") or 0)
+          vehicles=int(os.environ.get("VEHICLES") or 0)
+          plates=int(os.environ.get("PLATES") or 0)
+          ok=os.environ.get("INFER_OUTCOME")=="success" and live>=1 and vehicles>=1
+          state="success" if ok else "failure"
+          desc=f"live={live} vehicles={vehicles} plates={plates}"
+          body=json.dumps({
+            "state":state,
+            "context":"phase2-camera-source/full-inference",
+            "description":desc[:140]
+          }).encode()
+          url="https://api.github.com/repos/"+os.environ["REPO"]+"/statuses/"+os.environ["SHA"]
+          req=urllib.request.Request(url,data=body,method="POST",headers={
+            "Authorization":"Bearer "+os.environ["GH_TOKEN"],
+            "Accept":"application/vnd.github+json",
+            "Content-Type":"application/json",
+            "User-Agent":"anthony2-camera-ci"
+          })
+          with urllib.request.urlopen(req,timeout=20) as rr:
+              print(rr.status, rr.read().decode())
+          if not ok:
+              raise SystemExit("full live inference gate failed: "+desc)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: street-live-smoke
+          path: |
+            /tmp/street-live/live.sqlite
+            /tmp/street-live/crops
+          if-no-files-found: ignore
+          retention-days: 3
