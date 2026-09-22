@@ -1,4 +1,9 @@
-import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
+let Client=null,handle_file=null,gradioModulePromise=null;
+async function ensureGradio(){
+ if(Client&&handle_file)return true;
+ if(!gradioModulePromise)gradioModulePromise=import("https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js").then(m=>{Client=m.Client;handle_file=m.handle_file;return true}).catch(e=>{gradioModulePromise=null;throw e});
+ return gradioModulePromise;
+}
 
 const $=id=>document.getElementById(id);
 const video=$('video'),canvas=$('overlay'),ctx=canvas.getContext('2d'),stage=$('stage');
@@ -246,7 +251,7 @@ function parseANPR(text){const out=[];const s=String(text||'').toUpperCase();con
 
 async function connectANPR(){
  if(anprClient)return anprClient;if(anprConnectPromise)return anprConnectPromise;anprStatus='WAKE';render();
- anprConnectPromise=(async()=>{try{const c=await Client.connect(ANPR_SPACE,{status_callback:s=>{if(s?.status==='sleeping'||s?.status==='building'){anprStatus='WAKE';render()}}});let ep='/run';try{const info=await c.view_api();const keys=Object.keys(info?.named_endpoints||{});ep=keys.find(k=>/run/i.test(k))||keys.find(k=>/predict/i.test(k))||keys[0]||'/run'}catch{}anprClient=c;anprEndpoint=ep;anprStatus='READY';anprFailures=0;render();return c}catch(e){anprStatus='ERR';anprConnectPromise=null;render();throw e}})();return anprConnectPromise;
+ anprConnectPromise=(async()=>{try{await ensureGradio();const c=await Client.connect(ANPR_SPACE,{status_callback:s=>{if(s?.status==='sleeping'||s?.status==='building'){anprStatus='WAKE';render()}}});let ep='/run';try{const info=await c.view_api();const keys=Object.keys(info?.named_endpoints||{});ep=keys.find(k=>/run/i.test(k))||keys.find(k=>/predict/i.test(k))||keys[0]||'/run'}catch{}anprClient=c;anprEndpoint=ep;anprStatus='READY';anprFailures=0;render();return c}catch(e){anprStatus='ERR';anprConnectPromise=null;render();throw e}})();return anprConnectPromise;
 }
 async function cropTrack(t){
  if(!video.videoWidth)return null;const b=t.bbox,pad=.06*Math.max(b[2]-b[0],b[3]-b[1]),sx=Math.max(0,b[0]-pad),sy=Math.max(0,b[1]-pad),ex=Math.min(video.videoWidth,b[2]+pad),ey=Math.min(video.videoHeight,b[3]+pad),sw=ex-sx,sh=ey-sy;if(sw<100||sh<70)return null;const max=900,scale=Math.min(1,max/Math.max(sw,sh)),w=Math.max(1,Math.round(sw*scale)),h=Math.max(1,Math.round(sh*scale)),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.drawImage(video,sx,sy,sw,sh,0,0,w,h);const q=Math.min(1,.35+.4*Math.min(1,area(b)/(canvas.width*canvas.height*.18))+.25*(t.score||0));const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.88));return blob?{blob,q,w,h}:null;
