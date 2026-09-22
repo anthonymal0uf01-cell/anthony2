@@ -184,6 +184,8 @@ def main():
     ap.add_argument("--adapt-lr-mult",type=float,default=.06)
     ap.add_argument("--baseline",type=Path,default=None,
                     help="Currently deployed OCR checkpoint for hard-slice promotion comparison.")
+    ap.add_argument("--init-checkpoint",type=Path,default=None,
+                    help="Optional deployed OCR checkpoint to fine-tune instead of relearning from scratch.")
     ap.add_argument("--min-tiny-exact",type=float,default=.40)
     ap.add_argument("--min-tiny-improvement",type=float,default=.005)
     args=ap.parse_args()
@@ -198,11 +200,21 @@ def main():
     test=DataLoader(te,batch_size=args.batch,shuffle=False,num_workers=2,collate_fn=collate,persistent_workers=True)
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model=TinyAUOCR().to(device)
+    if args.init_checkpoint is not None and args.init_checkpoint.exists():
+        try:
+            raw_init=torch.load(args.init_checkpoint,map_location="cpu",weights_only=False)
+        except TypeError:
+            raw_init=torch.load(args.init_checkpoint,map_location="cpu")
+        init_state=raw_init.get("state_dict",raw_init) if isinstance(raw_init,dict) else raw_init
+        model.load_state_dict(init_state)
     opt=torch.optim.AdamW(model.parameters(),lr=args.lr,weight_decay=1e-4)
     sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,T_max=max(1,args.epochs),eta_min=args.lr*.08)
     ctc=nn.CTCLoss(blank=BLANK,zero_infinity=True)
-    best=(-1,None,None)
     args.out.mkdir(parents=True,exist_ok=True)
+    initial_metrics,_=eval_model(model,val,device)
+    best=(initial_metrics["exact_match"],
+          {k:v.detach().cpu() for k,v in model.state_dict().items()},
+          dict(initial_metrics))
     for epoch in range(1,args.epochs+1):
         model.train();loss_sum=0;steps=0
         for x,y,yl,_,_ in train:
