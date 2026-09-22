@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "updated": "2026-09-22",
+  "sources": [
+    {
+      "id": "roboflow_au_multistate",
+      "name": "australian-license-plates",
+      "kind": "plate_detection",
+      "url": "https://universe.roboflow.com/gattondieselmaker/australian-license-plates-j0eml",
+      "jurisdictions": [
+        "ACT",
+        "NSW",
+        "NT",
+        "SA"
+      ],
+      "images": 2720,
+      "license": "CC BY 4.0",
+      "production_policy": "allowed_with_attribution",
+      "verified_text_labels": false
+    },
+    {
+      "id": "roboflow_au_nsw_white",
+      "name": "AU-NSW-WHITE",
+      "kind": "plate_detection",
+      "url": "https://universe.roboflow.com/alpr-dld41/au-nsw-white",
+      "jurisdictions": [
+        "NSW"
+      ],
+      "images": 456,
+      "license": "CC BY 4.0",
+      "production_policy": "allowed_with_attribution",
+      "verified_text_labels": false
+    },
+    {
+      "id": "roboflow_licence_plates_australia",
+      "name": "Licence Plates Australia",
+      "kind": "plate_detection",
+      "url": "https://universe.roboflow.com/licence-plate-cw5ma/licence-plates-australia",
+      "jurisdictions": [
+        "AU"
+      ],
+      "images": 210,
+      "license": "CC BY 4.0",
+      "production_policy": "allowed_with_attribution",
+      "verified_text_labels": false
+    },
+    {
+      "id": "commons_au_automobiles",
+      "name": "Wikimedia Commons — Automobiles with license plates of Australia",
+      "kind": "public_vehicle_plate_images",
+      "url": "https://commons.wikimedia.org/wiki/Category:Automobiles_with_license_plates_of_Australia",
+      "jurisdictions": [
+        "ACT",
+        "NSW",
+        "NT",
+        "QLD",
+        "SA",
+        "TAS",
+        "VIC",
+        "WA"
+      ],
+      "images": null,
+      "license": "per-file",
+      "production_policy": "only_if_file_license_allows",
+      "verified_text_labels": "per-file/title/description; never assume"
+    },
+    {
+      "id": "commons_au_plate_categories",
+      "name": "Wikimedia Commons — License plates of Australia",
+      "kind": "public_plate_images",
+      "url": "https://commons.wikimedia.org/wiki/Category:License_plates_of_Australia",
+      "jurisdictions": [
+        "ACT",
+        "NSW",
+        "NT",
+        "QLD",
+        "SA",
+        "TAS",
+        "VIC",
+        "WA"
+      ],
+      "images": null,
+      "license": "per-file",
+      "production_policy": "only_if_file_license_allows",
+      "verified_text_labels": "per-file/title/description; never assume"
+    },
+    {
+      "id": "tfnsw_live_cameras",
+      "name": "Live Traffic NSW cameras",
+      "kind": "current_vehicle_appearance",
+      "url": "https://data.livetraffic.com/cameras/traffic-cam.json",
+      "jurisdictions": [
+        "NSW"
+      ],
+      "images": null,
+      "license": "Creative Commons Attribution",
+      "production_policy": "vehicle-domain imagery only unless current terms explicitly permit plate retention",
+      "verified_text_labels": false
+    },
+    {
+      "id": "tfnsw_registration_statistics",
+      "name": "TfNSW Vehicle Registration Statistics",
+      "kind": "aggregate_fleet_priors",
+      "url": "https://opendata.transport.nsw.gov.au/dataset/transport-nsw-vehicle-registration-statistics",
+      "jurisdictions": [
+        "NSW"
+      ],
+      "images": 0,
+      "license": "Creative Commons Attribution",
+      "production_policy": "fleet/configuration priors only",
+      "verified_text_labels": false
+    }
+  ]
+}
