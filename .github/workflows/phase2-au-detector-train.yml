@@ -33,13 +33,13 @@ jobs:
           python site-gate-tracker/specialist/export_hf_plate_detection_yolo.py --out /tmp/hf_plate --limit 6176
       - name: Build Australian road-domain detector set
         run: |
-          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 2400
+          python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_plate --count 5000 --ocr-min-width 20 --ocr-min-height 6 --tiny-max-width 64 --tiny-focus-ratio 0.75
       - name: Build live Australian vehicle profile
         run: |
           python site-gate-tracker/specialist/phase2_build_au_vehicle_profile.py --out /tmp/phase2_detector/au_vehicle_profile.json --limit 100
       - name: Train generic to Australian detector
         run: |
-          python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/hf_plate --au /tmp/au_plate --out /tmp/phase2_detector --warmup-epochs 1 --au-epochs 5 --warmup-imgsz 320 --au-imgsz 384 --warmup-batch 32 --au-batch 24 --min-map50 0.60 --min-recall 0.60
+          python site-gate-tracker/specialist/phase2_train_au_plate_detector.py --hf /tmp/hf_plate --au /tmp/au_plate --out /tmp/phase2_detector --baseline site-gate-tracker/specialist/weights/au_plate_detector.pt --warmup-epochs 1 --au-epochs 7 --warmup-imgsz 384 --au-imgsz 640 --warmup-batch 24 --au-batch 12 --min-map50 0.60 --min-recall 0.60 --tiny-max-width 64 --min-tiny-recall 0.35 --min-tiny-improvement 0.005
       - name: Publish detector checkpoint
         run: |
           mkdir -p site-gate-tracker/specialist/weights
