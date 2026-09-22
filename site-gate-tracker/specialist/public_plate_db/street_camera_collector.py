@@ -42,6 +42,7 @@ PUBLIC_INDEX="https://data.livetraffic.com/cameras/traffic-cam.json"
 API_INDEX="https://api.transport.nsw.gov.au/v1/live/cameras"
 PLATE_MODEL=SPECIALIST/"weights"/"au_plate_detector.pt"
 OCR_MODEL=SPECIALIST/"weights"/"au_ocr_seed.onnx"
+OCR_TINY_MODEL=SPECIALIST/"weights"/"au_ocr_tiny.onnx"
 ALPHABET="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 VEHICLE_CLASSES={"car","truck","bus","motorcycle"}
 
@@ -201,6 +202,13 @@ class Models:
         self.ocr=ort.InferenceSession(str(OCR_MODEL),providers=providers or None)
         self.ocr_in=self.ocr.get_inputs()[0].name
         self.ocr_out=self.ocr.get_outputs()[0].name
+        self.ocr_tiny=None
+        self.ocr_tiny_in=None
+        self.ocr_tiny_out=None
+        if OCR_TINY_MODEL.exists():
+            self.ocr_tiny=ort.InferenceSession(str(OCR_TINY_MODEL),providers=providers or None)
+            self.ocr_tiny_in=self.ocr_tiny.get_inputs()[0].name
+            self.ocr_tiny_out=self.ocr_tiny.get_outputs()[0].name
 
     @staticmethod
     def ocr_input(im:Image.Image):
@@ -212,8 +220,12 @@ class Models:
         a=(a-.5)/.5
         return a[None,None,:,:]
 
-    def read_plate(self,im:Image.Image):
-        logits=self.ocr.run([self.ocr_out],{self.ocr_in:self.ocr_input(im)})[0]
+    def read_plate(self,im:Image.Image, tiny:bool=False):
+        use_tiny=bool(tiny and self.ocr_tiny is not None)
+        sess=self.ocr_tiny if use_tiny else self.ocr
+        inn=self.ocr_tiny_in if use_tiny else self.ocr_in
+        outn=self.ocr_tiny_out if use_tiny else self.ocr_out
+        logits=sess.run([outn],{inn:self.ocr_input(im)})[0]
         z=np.asarray(logits)
         if z.ndim==3: z=z[0]
         # model exports [T,C]; tolerate [C,T]
@@ -245,17 +257,17 @@ class Models:
     def plate_read(self,vehicle:Image.Image):
         # Traffic cameras often show vehicles at only ~100-250 px wide. Run a bounded
         # multi-scale recovery pass rather than assuming the native crop is sufficient.
-        variants=[("native",vehicle,384)]
+        variants=[("native",vehicle,384,1.0)]
         if vehicle.width<360 or vehicle.height<180:
             scale=min(3.0,max(1.5,480.0/max(1.0,vehicle.width)))
             up=vehicle.resize((int(vehicle.width*scale),int(vehicle.height*scale)),Image.Resampling.LANCZOS)
-            variants.append(("upscaled",up,640))
+            variants.append(("upscaled",up,640,scale))
         if vehicle.width<220:
             scale=min(4.0,max(2.0,520.0/max(1.0,vehicle.width)))
             up2=vehicle.resize((int(vehicle.width*scale),int(vehicle.height*scale)),Image.Resampling.LANCZOS)
-            variants.append(("upscaled_hi",up2,768))
+            variants.append(("upscaled_hi",up2,768,scale))
         cand=[]
-        for mode,img,sz in variants:
+        for mode,img,sz,scale_factor in variants:
             r=self.plate.predict(source=np.asarray(img),imgsz=sz,conf=.10,iou=.50,verbose=False)[0]
             if r.boxes is None or len(r.boxes)==0: continue
             W,H=img.size
@@ -265,10 +277,14 @@ class Models:
                 if ar<1.05 or ar>9.0 or w*h<140: continue
                 pad=max(3,h*.20)
                 crop=img.crop((max(0,int(x1-pad)),max(0,int(y1-pad)),min(W,int(x2+pad)),min(H,int(y2+pad))))
-                txt,oc=self.read_plate(crop)
+                native_plate_width=w/max(1e-6,scale_factor)
+                use_tiny=native_plate_width<=64
+                txt,oc=self.read_plate(crop,tiny=use_tiny)
                 if 3<=len(txt)<=10:
                     score=float(oc)*(.68+.32*float(cf))
-                    cand.append((txt,score,float(cf),crop,mode))
+                    cand.append((txt,score,float(cf),crop,mode,
+                                 "tiny" if use_tiny and self.ocr_tiny is not None else "general",
+                                 native_plate_width))
         if not cand: return None
         # Prefer agreement across scales; disagreement remains machine evidence only.
         by={}
@@ -279,7 +295,7 @@ class Models:
             support=len(rows)
             row=max(rows,key=lambda x:x[1])
             score=min(1.0,row[1]+0.08*(support-1))
-            z=(txt,score,row[2],row[3],row[4],support)
+            z=(txt,score,row[2],row[3],row[4],support,row[5],row[6])
             if best is None or z[1]>best[1]: best=z
         return best
 
@@ -359,7 +375,7 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
         pr=models.plate_read(vehicle)
         ptxt=pconf=None
         if pr:
-            ptxt,pconf,pdet,plate_crop,plate_mode,plate_support=pr
+            ptxt,pconf,pdet,plate_crop,plate_mode,plate_support,ocr_branch,native_plate_width=pr
             oid="plate:"+uuid.uuid4().hex
             con.execute("""INSERT INTO plate_observations
               (observation_id,media_id,plate_text,text_status,jurisdiction,
@@ -367,9 +383,13 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
               VALUES(?,?,?,?,?,?,?,?)""",(
               oid,mid,ptxt,"machine_read","NSW",pdet,pconf,
               "Live street-camera OCR; multi-scale="+plate_mode+
-              " support="+str(plate_support)+". Not registry truth until independently verified."
+              " support="+str(plate_support)+" ocr_branch="+ocr_branch+
+              " native_plate_width="+str(round(native_plate_width,1))+
+              ". Not registry truth until independently verified."
             ))
-            plates.append({"text":ptxt,"confidence":round(pconf,3),"mode":plate_mode,"support":plate_support})
+            plates.append({"text":ptxt,"confidence":round(pconf,3),"mode":plate_mode,
+                           "support":plate_support,"ocr_branch":ocr_branch,
+                           "native_plate_width":round(native_plate_width,1)})
         soid="street:"+uuid.uuid4().hex
         con.execute("""INSERT INTO street_vehicle_observations
           (street_observation_id,frame_id,media_id,detector_class,detector_confidence,
