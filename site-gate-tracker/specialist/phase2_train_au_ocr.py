@@ -182,6 +182,10 @@ def main():
     ap.add_argument("--min-adapt-exact",type=float,default=.78)
     ap.add_argument("--adapt-synth-ratio",type=float,default=1.5)
     ap.add_argument("--adapt-lr-mult",type=float,default=.06)
+    ap.add_argument("--baseline",type=Path,default=None,
+                    help="Currently deployed OCR checkpoint for hard-slice promotion comparison.")
+    ap.add_argument("--min-tiny-exact",type=float,default=.40)
+    ap.add_argument("--min-tiny-improvement",type=float,default=.005)
     args=ap.parse_args()
     torch.manual_seed(1404);random.seed(1404);np.random.seed(1404)
     torch.set_num_threads(max(1,min(4,torch.get_num_threads())))
@@ -264,6 +268,20 @@ def main():
             model.load_state_dict(best_adapt[1])
         adapt_metrics_final,_=eval_model(model,atl,device)
 
+    # Compare the candidate against the currently deployed checkpoint on the exact
+    # same camera-domain test set. This prevents a generic metric win from replacing
+    # a model that is actually better on tiny street-camera plates.
+    baseline_camera_metrics=None
+    if args.baseline is not None and args.adapt_dataset is not None and args.baseline.exists():
+        try:
+            raw=torch.load(args.baseline,map_location="cpu",weights_only=False)
+        except TypeError:
+            raw=torch.load(args.baseline,map_location="cpu")
+        state0=raw.get("state_dict",raw) if isinstance(raw,dict) else raw
+        baseline_model=TinyAUOCR().to(device)
+        baseline_model.load_state_dict(state0)
+        baseline_camera_metrics,_=eval_model(baseline_model,atl,device)
+
     # Fit reliability bins on validation only, then report final metrics on untouched test.
     _,cal_records=eval_model(model,val,device)
     if args.adapt_dataset is not None:
@@ -288,6 +306,7 @@ def main():
     hard=[v["exact_match"] for k,v in metrics["by_slice"].items() if k.startswith("cond:") and v["n"]>=25]
     metrics["worst_hard_slice"]=min(hard) if hard else metrics["exact_match"]
     if adapt_metrics_final is not None: metrics["camera_domain"]=adapt_metrics_final
+    if baseline_camera_metrics is not None: metrics["baseline_camera_domain"]=baseline_camera_metrics
     state={k:v.detach().cpu() for k,v in model.state_dict().items()}
     score=metrics["exact_match"]
     ckpt={"state_dict":state,"alphabet":ALPHABET,"input_width":160,"input_height":48,"metrics":metrics,
@@ -315,6 +334,28 @@ def main():
         raise SystemExit("promotion gate failed: selected validation-safe calibration materially worsened untouched-test reliability")
     if adapt_metrics_final is not None and adapt_metrics_final["exact_match"] < args.min_adapt_exact:
         raise SystemExit(f"promotion gate failed: camera-domain exact {adapt_metrics_final['exact_match']:.3f} < {args.min_adapt_exact:.3f}")
-    print(f"PROMOTED exact_match={score:.4f}")
+    if adapt_metrics_final is not None:
+        tiny=adapt_metrics_final.get("by_slice",{}).get("cond:tiny_plate_20_64")
+        if not tiny or tiny.get("n",0) < 25:
+            raise SystemExit("promotion gate failed: insufficient tiny_plate_20_64 test examples")
+        tiny_exact=float(tiny["exact_match"])
+        metrics["tiny_plate_exact_match"]=tiny_exact
+        if tiny_exact < args.min_tiny_exact:
+            raise SystemExit(f"promotion gate failed: tiny-plate exact {tiny_exact:.3f} < {args.min_tiny_exact:.3f}")
+        if baseline_camera_metrics is not None:
+            bt=baseline_camera_metrics.get("by_slice",{}).get("cond:tiny_plate_20_64")
+            if bt and bt.get("n",0)>=25:
+                baseline_tiny=float(bt["exact_match"])
+                metrics["baseline_tiny_plate_exact_match"]=baseline_tiny
+                improvement=tiny_exact-baseline_tiny
+                metrics["tiny_plate_improvement"]=improvement
+                if improvement < args.min_tiny_improvement:
+                    raise SystemExit(
+                        f"promotion gate failed: tiny-plate improvement {improvement:.4f} "
+                        f"< {args.min_tiny_improvement:.4f} (candidate={tiny_exact:.3f}, baseline={baseline_tiny:.3f})"
+                    )
+    # Rewrite metrics after all promotion-comparison fields have been added.
+    (args.out/"metrics.json").write_text(json.dumps(metrics,indent=2),encoding="utf-8")
+    print(f"PROMOTED exact_match={score:.4f} tiny_plate={metrics.get('tiny_plate_exact_match','n/a')}")
 
 if __name__=="__main__":main()
