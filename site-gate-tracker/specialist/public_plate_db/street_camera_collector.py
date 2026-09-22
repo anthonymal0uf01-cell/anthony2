@@ -48,10 +48,13 @@ def utc():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
 
 def request(url:str, *, api_key:str|None=None, timeout=25)->bytes:
+    is_image=("webcams.transport.nsw.gov.au" in url or
+              url.lower().endswith((".jpg",".jpeg",".png",".webp")))
     h={
-      "User-Agent":"AU-Vehicle-Knowledge/1.0",
-      "Accept":"application/json,image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 Version/26.0 Mobile/15E148 Safari/604.1",
+      "Accept":"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" if is_image else "application/json,text/plain,*/*",
       "Referer":"https://www.livetraffic.com/",
+      "Accept-Language":"en-AU,en;q=0.9",
       "Cache-Control":"no-cache",
     }
     if api_key:
@@ -223,7 +226,7 @@ def save_frame_record(con,cam,frame_id,when,status,im=None,raw=None,error=None,v
 
 def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
     when=utc(); frame_id="cam:"+cam["id"]+":"+str(int(time.time()*1000))
-    url=cam["href"]+("?" if "?" not in cam["href"] else "&")+"ts="+str(int(time.time()))
+    url=cam["href"]
     try:
         raw=request(url)
         im=Image.open(io.BytesIO(raw)).convert("RGB")
