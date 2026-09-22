@@ -76,9 +76,12 @@ def main():
     ap.add_argument("--out",type=Path,required=True)
     ap.add_argument("--count",type=int,default=800)
     ap.add_argument("--seed",type=int,default=20260918)
-    ap.add_argument("--ocr-min-width",type=int,default=64)
-    ap.add_argument("--ocr-min-height",type=int,default=18)
-    ap.add_argument("--require-ocr",action="store_true",help="Fail if readable-corridor OCR splits are too small.")
+    ap.add_argument("--ocr-min-width",type=int,default=20)
+    ap.add_argument("--ocr-min-height",type=int,default=6)
+    ap.add_argument("--tiny-max-width",type=int,default=64)
+    ap.add_argument("--tiny-focus-ratio",type=float,default=.70,
+                    help="Fraction of synthetic plates deliberately rendered in the tiny street-camera regime.")
+    ap.add_argument("--require-ocr",action="store_true",help="Fail if camera-domain OCR splits are too small.")
     args=ap.parse_args();random.seed(args.seed);np.random.seed(args.seed)
     args.out.mkdir(parents=True,exist_ok=True)
     cams=parse_cameras(req(TFNSW))
@@ -129,15 +132,22 @@ def main():
             if target:
                 vx1,vy1,vx2,vy2,vcls=target
                 vw=max(20.0,vx2-vx1);vh=max(16.0,vy2-vy1)
-                # Registration plates normally occupy a small central lower-body region.
-                tw=int(np.clip(vw*random.uniform(.20,.42),30,180))
-                th=max(10,int(tw*(p.height/p.width)*random.uniform(.85,1.12)))
+                # Street-camera failure is dominated by tiny plates. Force most examples
+                # into the measured hard slice instead of only training on readable close-ups.
+                if random.random() < args.tiny_focus_ratio:
+                    tw=int(np.clip(vw*random.uniform(.10,.24),20,args.tiny_max_width))
+                else:
+                    tw=int(np.clip(vw*random.uniform(.20,.42),args.tiny_max_width+1,180))
+                th=max(6,int(tw*(p.height/p.width)*random.uniform(.78,1.12)))
                 cx=random.uniform(vx1+vw*.35,vx1+vw*.65)
                 cy=random.uniform(vy1+vh*.61,vy1+vh*.84)
             else:
                 cy=random.uniform(.55,.88)*H
-                tw=int(np.clip(W*random.uniform(.045,.095),30,150))
-                th=max(10,int(tw*(p.height/p.width)))
+                if random.random() < args.tiny_focus_ratio:
+                    tw=random.randint(20,args.tiny_max_width)
+                else:
+                    tw=int(np.clip(W*random.uniform(.045,.095),args.tiny_max_width+1,150))
+                th=max(6,int(tw*(p.height/p.width)))
                 cx=random.uniform(.10,.90)*W
             p=p.resize((tw,th),Image.Resampling.BICUBIC)
             angle=random.uniform(-8,8);p=p.rotate(angle,resample=Image.Resampling.BICUBIC,expand=True,fillcolor=(80,80,80))
@@ -147,19 +157,34 @@ def main():
             pad=max(2,int(p.width*.08));box=(max(0,x-pad),max(0,y-pad),min(W,x+p.width+pad),min(H,y+p.height+pad))
             patch=im.crop(box).filter(ImageFilter.GaussianBlur(max(1.2,p.width/60)))
             im.paste(patch,box);im.paste(p,(x,y))
-            # OCR only receives plate crops that meet a minimum readable pixel envelope.
-            # Smaller plates remain in detector data and are handled by abstention/continued capture.
             if p.width>=args.ocr_min_width and p.height>=args.ocr_min_height:
-                crop_pad=max(1,int(p.width*.035))
+                crop_pad=max(1,int(p.width*.04))
                 crop_box=(max(0,x-crop_pad),max(0,y-crop_pad),min(W,x+p.width+crop_pad),min(H,y+p.height+crop_pad))
-                crop=im.crop(crop_box).resize((160,48),Image.Resampling.LANCZOS)
-                if random.random()<.35:
-                    crop=crop.filter(ImageFilter.GaussianBlur(random.uniform(.10,.45)))
+                crop=im.crop(crop_box)
+                conditions=["tfnsw_camera_domain"]
+                if p.width<=args.tiny_max_width:
+                    conditions += ["tiny_plate_20_64","upscaled_from_tiny"]
+                else:
+                    conditions += ["readable_corridor"]
+                # Reproduce the street-camera degradation chain before OCR upscaling:
+                # native tiny raster -> blur/exposure -> JPEG compression -> 160x48 OCR input.
+                if random.random()<.75:
+                    crop=crop.filter(ImageFilter.GaussianBlur(random.uniform(.25,1.15)))
+                    conditions.append("blur")
+                if random.random()<.55:
+                    crop=ImageEnhance.Brightness(crop).enhance(random.uniform(.55,1.28))
+                    conditions.append("exposure")
+                if random.random()<.75:
+                    buf=io.BytesIO()
+                    crop.save(buf,format="JPEG",quality=random.randint(28,72),subsampling=2)
+                    crop=Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
+                    conditions.append("jpeg_compression")
+                crop=crop.resize((160,48),Image.Resampling.LANCZOS)
                 ocr_dir=args.out/"ocr"/"images";ocr_dir.mkdir(parents=True,exist_ok=True)
                 ocfn=f"{i:06d}_{k}_{txt}.jpg";crop.save(ocr_dir/ocfn,quality=random.randint(82,96),subsampling=0)
                 ocr_rows[split].append((f"images/{ocfn}",txt))
                 ocr_manifest.append({"image":f"images/{ocfn}","text":txt,"kind":kind,
-                    "conditions":["tfnsw_camera_domain","readable_corridor"],"plate_pixels":[p.width,p.height],"split":split})
+                    "conditions":conditions,"plate_pixels":[p.width,p.height],"split":split})
             xc=(x+p.width/2)/W;yc=(y+p.height/2)/H
             labels.append(f"0 {xc:.6f} {yc:.6f} {p.width/W:.6f} {p.height/H:.6f}")
             objects.append({"text":txt,"kind":kind,"bbox":[x,y,p.width,p.height]})
@@ -186,6 +211,7 @@ def main():
     print(json.dumps({"images":len(manifest),"ocr_crops":sum(len(v) for v in ocr_rows.values()),
         "ocr_split_counts":{k:len(v) for k,v in ocr_rows.items()},
         "ocr_min_pixels":[args.ocr_min_width,args.ocr_min_height],
+        "tiny_max_width":args.tiny_max_width,"tiny_focus_ratio":args.tiny_focus_ratio,
         "live_camera_backgrounds":len(cache),"source":"TfNSW Live Traffic Cameras","license":"CC BY"},indent=2))
     if args.require_ocr and (len(ocr_rows["train"])<300 or len(ocr_rows["val"])<40 or len(ocr_rows["test"])<30):
         raise SystemExit("Insufficient readable-corridor OCR crops; increase camera-domain corpus")
