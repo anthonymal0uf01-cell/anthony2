@@ -80,3 +80,75 @@ CREATE INDEX IF NOT EXISTS idx_plate_text ON plate_observations(plate_text);
 CREATE INDEX IF NOT EXISTS idx_plate_jurisdiction ON plate_observations(jurisdiction);
 CREATE INDEX IF NOT EXISTS idx_media_source ON media(source_id);
 CREATE INDEX IF NOT EXISTS idx_vehicle_vin ON vehicles(vin);
+
+
+CREATE TABLE IF NOT EXISTS vehicle_resolutions (
+  resolution_id TEXT PRIMARY KEY,
+  plate_text TEXT NOT NULL,
+  jurisdiction TEXT NOT NULL,
+  vin TEXT,
+  vehicle_id TEXT REFERENCES vehicles(vehicle_id),
+  resolution_status TEXT NOT NULL CHECK(resolution_status IN (
+    'unresolved','provider_candidate','provider_verified','manual_verified','rejected'
+  )),
+  provider TEXT,
+  provider_reference TEXT,
+  confidence REAL,
+  resolved_at TEXT,
+  raw_response_json TEXT,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS rav_records (
+  vin TEXT PRIMARY KEY,
+  rav_date_of_entry TEXT,
+  entry_pathway_subcategory TEXT,
+  approval_number TEXT,
+  approval_holder TEXT,
+  vehicle_category_code TEXT,
+  vehicle_make TEXT,
+  vehicle_model TEXT,
+  authorised_by_name TEXT,
+  build_date TEXT,
+  gvm_atm_kg REAL,
+  gtm_kg REAL,
+  tare_kg REAL,
+  motive_power TEXT,
+  power_kw REAL,
+  gcm_kg REAL,
+  seating_capacity INTEGER,
+  nves_vehicle_type TEXT,
+  co2_g_km REAL,
+  mass_in_running_order_kg REAL,
+  source_url TEXT,
+  fetched_at TEXT,
+  raw_fields_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS training_labels (
+  training_label_id TEXT PRIMARY KEY,
+  observation_id TEXT NOT NULL REFERENCES plate_observations(observation_id),
+  vehicle_id TEXT REFERENCES vehicles(vehicle_id),
+  vin TEXT,
+  plate_text TEXT,
+  jurisdiction TEXT,
+  make TEXT,
+  model TEXT,
+  variant TEXT,
+  series TEXT,
+  body_type TEXT,
+  vehicle_class TEXT,
+  gvm_kg REAL,
+  gcm_kg REAL,
+  tare_kg REAL,
+  label_quality TEXT NOT NULL CHECK(label_quality IN (
+    'weak','plate_verified','vin_verified','registry_enriched'
+  )),
+  provenance_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_resolution_plate_state ON vehicle_resolutions(plate_text,jurisdiction);
+CREATE INDEX IF NOT EXISTS idx_resolution_vin ON vehicle_resolutions(vin);
+CREATE INDEX IF NOT EXISTS idx_rav_make_model ON rav_records(vehicle_make,vehicle_model);
+CREATE INDEX IF NOT EXISTS idx_training_vin ON training_labels(vin);
