@@ -220,3 +220,26 @@ CREATE INDEX IF NOT EXISTS idx_street_obs_plate
   ON street_vehicle_observations(provisional_plate);
 
 CREATE INDEX IF NOT EXISTS idx_camera_yield_score ON camera_yield(score DESC);
+
+
+CREATE TABLE IF NOT EXISTS plate_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  media_id TEXT NOT NULL REFERENCES media(media_id),
+  attempted_at TEXT NOT NULL,
+  detector_variants INTEGER DEFAULT 0,
+  detector_boxes INTEGER DEFAULT 0,
+  plausible_plate_boxes INTEGER DEFAULT 0,
+  best_detector_confidence REAL,
+  ocr_attempts INTEGER DEFAULT 0,
+  ocr_nonempty INTEGER DEFAULT 0,
+  accepted INTEGER DEFAULT 0,
+  accepted_text TEXT,
+  accepted_confidence REAL,
+  accepted_branch TEXT,
+  accepted_native_plate_width REAL,
+  failure_stage TEXT,
+  diagnostics_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_plate_attempt_media ON plate_attempts(media_id);
+CREATE INDEX IF NOT EXISTS idx_plate_attempt_stage ON plate_attempts(failure_stage);
