@@ -310,7 +310,6 @@ def main():
     if args.list_cameras:
         for c in cams: print(json.dumps(c,ensure_ascii=False))
         return
-    cams=cams[:max(1,args.camera_limit)]
     con=init_db(args.db)
     models=Models(args.vehicle_model)
     args.out.mkdir(parents=True,exist_ok=True)
@@ -318,9 +317,18 @@ def main():
     try:
         while args.cycles==0 or cycle<args.cycles:
             started=time.time()
-            for cam in cams:
+            live=0
+            scanned=0
+            for cam in cams[:max(args.camera_limit,args.scan_limit)]:
+                scanned+=1
                 result=process_camera(con,models,cam,args.out,args.keep_full_frames)
                 print(json.dumps(result,ensure_ascii=False),flush=True)
+                if result.get("status") in {"ok","unchanged"}:
+                    live+=1
+                    if live>=max(1,args.camera_limit):
+                        break
+            print(json.dumps({"cycle":cycle+1,"scanned":scanned,"live_cameras":live,
+                              "target_live_cameras":args.camera_limit},ensure_ascii=False),flush=True)
             cycle+=1
             if args.cycles and cycle>=args.cycles: break
             time.sleep(max(0,args.interval-(time.time()-started)))
