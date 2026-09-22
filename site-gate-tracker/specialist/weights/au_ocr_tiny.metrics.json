@@ -1,0 +1,263 @@
+{
+  "samples": 600,
+  "exact_match": 0.8783333333333333,
+  "cer": 0.023628938156359393,
+  "brier_raw": 0.09001208925262683,
+  "brier_calibrated": 0.0811800857779878,
+  "by_slice": {
+    "all": {
+      "n": 600,
+      "exact_match": 0.8783333333333333
+    },
+    "kind:nhv": {
+      "n": 168,
+      "exact_match": 0.8214285714285714
+    },
+    "cond:oblique": {
+      "n": 413,
+      "exact_match": 0.864406779661017
+    },
+    "cond:blur": {
+      "n": 343,
+      "exact_match": 0.8658892128279884
+    },
+    "cond:dark": {
+      "n": 281,
+      "exact_match": 0.8469750889679716
+    },
+    "cond:glare": {
+      "n": 208,
+      "exact_match": 0.8605769230769231
+    },
+    "cond:rain": {
+      "n": 167,
+      "exact_match": 0.8323353293413174
+    },
+    "cond:low_resolution": {
+      "n": 349,
+      "exact_match": 0.8911174785100286
+    },
+    "kind:nsw_yellow": {
+      "n": 140,
+      "exact_match": 0.9
+    },
+    "cond:contrast": {
+      "n": 205,
+      "exact_match": 0.8731707317073171
+    },
+    "cond:partial_occlusion": {
+      "n": 115,
+      "exact_match": 0.8521739130434782
+    },
+    "kind:nsw_white": {
+      "n": 242,
+      "exact_match": 0.9049586776859504
+    },
+    "cond:headlight_bloom": {
+      "n": 130,
+      "exact_match": 0.823076923076923
+    },
+    "cond:motion_blur": {
+      "n": 167,
+      "exact_match": 0.8862275449101796
+    },
+    "cond:dirt": {
+      "n": 200,
+      "exact_match": 0.855
+    },
+    "kind:nsw_auxiliary": {
+      "n": 50,
+      "exact_match": 0.88
+    }
+  },
+  "calibrator": [
+    {
+      "lo": 0.07060382515192032,
+      "hi": 0.278702105554252,
+      "accuracy": 0.0,
+      "n": 65
+    },
+    {
+      "lo": 0.2792391910249892,
+      "hi": 0.5144482426363364,
+      "accuracy": 0.0,
+      "n": 66
+    },
+    {
+      "lo": 0.5187392450397253,
+      "hi": 0.70094143675481,
+      "accuracy": 0.09090909090909091,
+      "n": 66
+    },
+    {
+      "lo": 0.7095130472144503,
+      "hi": 0.7854552700706552,
+      "accuracy": 0.3787878787878788,
+      "n": 66
+    },
+    {
+      "lo": 0.7894202061713553,
+      "hi": 0.8347760219603835,
+      "accuracy": 0.5606060606060606,
+      "n": 66
+    },
+    {
+      "lo": 0.835537419360333,
+      "hi": 0.8785386883783474,
+      "accuracy": 0.6923076923076923,
+      "n": 65
+    },
+    {
+      "lo": 0.878602664223976,
+      "hi": 0.9207386450500528,
+      "accuracy": 0.9393939393939394,
+      "n": 66
+    },
+    {
+      "lo": 0.9207866466069272,
+      "hi": 0.9507475037342642,
+      "accuracy": 0.9848484848484849,
+      "n": 66
+    },
+    {
+      "lo": 0.9511500093744168,
+      "hi": 0.9672410080414764,
+      "accuracy": 1.0,
+      "n": 66
+    },
+    {
+      "lo": 0.9673052830830737,
+      "hi": 0.9861073771122354,
+      "accuracy": 1.0,
+      "n": 66
+    }
+  ],
+  "calibration_selection": {
+    "mode": "empirical_bins",
+    "fit_n": 658,
+    "check_n": 657,
+    "check_brier_raw": 0.12994996887189952,
+    "check_brier_calibrated": 0.086922763727694
+  },
+  "training": {
+    "synthetic_train": 13800,
+    "synthetic_val": 600,
+    "synthetic_test": 600,
+    "epochs": 0,
+    "batch": 96,
+    "lr": 0.002,
+    "adapt_epochs": 8,
+    "adapt_synth_ratio": 1.5,
+    "adapt_lr_mult": 0.04,
+    "camera_train": 5974,
+    "camera_val": 715,
+    "camera_test": 576
+  },
+  "worst_hard_slice": 0.823076923076923,
+  "camera_domain": {
+    "samples": 576,
+    "exact_match": 0.328125,
+    "cer": 0.3906064209274673,
+    "brier_raw": 0.17237480217084686,
+    "brier_calibrated": 0.093634564897677,
+    "by_slice": {
+      "all": {
+        "n": 576,
+        "exact_match": 0.328125
+      },
+      "kind:nsw_yellow": {
+        "n": 169,
+        "exact_match": 0.2485207100591716
+      },
+      "cond:tfnsw_camera_domain": {
+        "n": 576,
+        "exact_match": 0.328125
+      },
+      "cond:tiny_plate_20_64": {
+        "n": 440,
+        "exact_match": 0.22045454545454546
+      },
+      "cond:upscaled_from_tiny": {
+        "n": 440,
+        "exact_match": 0.22045454545454546
+      },
+      "cond:blur": {
+        "n": 451,
+        "exact_match": 0.2926829268292683
+      },
+      "cond:exposure": {
+        "n": 312,
+        "exact_match": 0.32371794871794873
+      },
+      "kind:nhv": {
+        "n": 110,
+        "exact_match": 0.3181818181818182
+      },
+      "kind:nsw_white": {
+        "n": 297,
+        "exact_match": 0.3771043771043771
+      },
+      "cond:readable_corridor": {
+        "n": 136,
+        "exact_match": 0.6764705882352942
+      },
+      "cond:jpeg_compression": {
+        "n": 446,
+        "exact_match": 0.2937219730941704
+      }
+    }
+  },
+  "baseline_camera_domain": {
+    "samples": 576,
+    "exact_match": 0.017361111111111112,
+    "cer": 0.7901307966706302,
+    "brier_raw": 0.20856613747559855,
+    "brier_calibrated": 0.20856613747559855,
+    "by_slice": {
+      "all": {
+        "n": 576,
+        "exact_match": 0.017361111111111112
+      },
+      "kind:nsw_yellow": {
+        "n": 169,
+        "exact_match": 0.011834319526627219
+      },
+      "cond:tfnsw_camera_domain": {
+        "n": 576,
+        "exact_match": 0.017361111111111112
+      },
+      "cond:tiny_plate_20_64": {
+        "n": 440,
+        "exact_match": 0.004545454545454545
+      },
+      "cond:upscaled_from_tiny": {
+        "n": 440,
+        "exact_match": 0.004545454545454545
+      },
+      "cond:blur": {
+        "n": 451,
+        "exact_match": 0.015521064301552107
+      },
+      "cond:exposure": {
+        "n": 312,
+        "exact_match": 0.019230769230769232
+      },
+      "kind:nhv": {
+        "n": 110,
+        "exact_match": 0.00909090909090909
+      },
+      "kind:nsw_white": {
+        "n": 297,
+        "exact_match": 0.02356902356902357
+      },
+      "cond:readable_corridor": {
+        "n": 136,
+        "exact_match": 0.058823529411764705
+      },
+      "cond:jpeg_compression": {
+        "n": 446,
+        "exact_match": 0.01569506726457399
+      }
+    }
+  }
+}
