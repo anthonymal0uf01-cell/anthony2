@@ -8,6 +8,10 @@ on:
       - 'site-gate-tracker/specialist/public_plate_db/build_street_adaptation_dataset.py'
       - 'site-gate-tracker/specialist/public_plate_db/street_camera_seed_profile.json'
       - 'site-gate-tracker/specialist/public_plate_db/schema.sql'
+      - 'site-gate-tracker/specialist/weights/au_plate_detector.pt'
+      - 'site-gate-tracker/specialist/weights/au_plate_detector.onnx'
+      - 'site-gate-tracker/specialist/weights/au_ocr_seed.onnx'
+      - 'site-gate-tracker/specialist/weights/au_ocr_tiny.onnx'
       - '.github/workflows/phase2-camera-source.yml'
   workflow_dispatch:
 permissions:
