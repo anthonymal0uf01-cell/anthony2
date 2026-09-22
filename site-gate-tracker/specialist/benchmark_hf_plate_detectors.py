@@ -88,10 +88,23 @@ def run_rfdetr(repo_id, filename, images, threshold=.05):
         x=np.asarray(im.resize((W,H),Image.Resampling.BILINEAR),dtype=np.float32)/255.0
         x=np.transpose(x,(2,0,1))[None]
         raw=sess.run(None,{inp.name:x})
-        boxes=np.asarray(raw[boxes_i])[0]
-        logits=np.asarray(raw[logits_i])[0]
+        boxes=np.squeeze(np.asarray(raw[boxes_i]))
+        logits=np.squeeze(np.asarray(raw[logits_i]))
+        # RF-DETR exports can retain singleton query/head dimensions depending on
+        # optimization pass. Collapse them while preserving the final box/class axes.
+        if boxes.ndim==1:
+            boxes=boxes.reshape(1,4)
+        elif boxes.ndim>2:
+            boxes=boxes.reshape(-1,4)
+        if logits.ndim==0:
+            logits=logits.reshape(1,1)
+        elif logits.ndim==1:
+            logits=logits.reshape(-1,1)
+        elif logits.ndim>2:
+            logits=logits.reshape(boxes.shape[0],-1)
+        if logits.shape[0] != boxes.shape[0]:
+            logits=logits.reshape(boxes.shape[0],-1)
         # RF-DETR ONNX: normalized cxcywh boxes + raw per-class logits.
-        if logits.ndim==1: logits=logits[:,None]
         if logits.shape[-1]>1:
             fg=logits[:,:-1]  # contiguous-ID checkpoints conventionally keep bg last
         else:
