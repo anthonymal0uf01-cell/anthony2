@@ -37,6 +37,7 @@ HERE=Path(__file__).resolve().parent
 SPECIALIST=HERE.parent
 DEFAULT_DB=HERE/"au_public_plates.sqlite"
 DEFAULT_OUT=HERE/"street_crops"
+SEED_PROFILE=HERE/"street_camera_seed_profile.json"
 PUBLIC_INDEX="https://data.livetraffic.com/cameras/traffic-cam.json"
 API_INDEX="https://api.transport.nsw.gov.au/v1/live/cameras"
 PLATE_MODEL=SPECIALIST/"weights"/"au_plate_detector.pt"
@@ -107,6 +108,62 @@ def hamming(a:str,b:str)->int:
     try:
         return sum((int(x,16)^int(y,16)).bit_count() for x,y in zip(a,b))
     except Exception: return 64
+
+def seed_scores()->dict[str,float]:
+    if not SEED_PROFILE.exists():
+        return {}
+    try:
+        j=json.loads(SEED_PROFILE.read_text(encoding="utf-8"))
+        return {str(x["camera_id"]):float(x.get("seed_score",0)) for x in j.get("cameras",[])}
+    except Exception:
+        return {}
+
+def rank_cameras(con,cams):
+    seeds=seed_scores()
+    db={r[0]:float(r[1] or 0) for r in con.execute("SELECT camera_id,score FROM camera_yield").fetchall()}
+    # Prioritise cameras that have actually yielded vehicles, but retain catalogue order as
+    # a stable exploration tie-break so the collector still learns about unseen cameras.
+    return sorted(cams,key=lambda x:-(db.get(x["id"],0)*2.0+seeds.get(x["id"],0)))
+
+def crop_quality(im:Image.Image, box, conf:float):
+    W,H=im.size
+    x1,y1,x2,y2=box
+    w=max(1.0,x2-x1); h=max(1.0,y2-y1)
+    frac=(w*h)/max(1.0,W*H)
+    edge=(x1<=3 or y1<=3 or x2>=W-3 or y2>=H-3)
+    size_score=min(1.0,w/220.0)*min(1.0,h/120.0)
+    area_score=min(1.0,frac/0.055)
+    q=(0.48*size_score)+(0.22*area_score)+(0.30*max(0.0,min(1.0,conf)))
+    flags=[]
+    if edge: q-=0.22; flags.append("edge_truncated")
+    if w<100 or h<55: q-=0.18; flags.append("small_crop")
+    if frac<0.008: q-=0.12; flags.append("tiny_in_frame")
+    if conf<0.32: q-=0.10; flags.append("weak_detection")
+    q=max(0.0,min(1.0,q))
+    eligible=(q>=0.52 and not edge and w>=100 and h>=55)
+    return q,eligible,flags,frac,int(edge),int(round(w)),int(round(h))
+
+def update_camera_yield(con,cam,live:int,detected:int,retained:int,eligible:int,plates:int):
+    now=utc()
+    row=con.execute("""SELECT attempts,live_frames,detected_vehicles,retained_crops,
+                      training_eligible_crops,plate_reads FROM camera_yield WHERE camera_id=?""",
+                    (cam["id"],)).fetchone()
+    vals=list(row) if row else [0,0,0,0,0,0]
+    vals=[vals[0]+1,vals[1]+live,vals[2]+detected,vals[3]+retained,vals[4]+eligible,vals[5]+plates]
+    attempts=max(1,vals[0])
+    # Yield-weighted score: useful crops and plates dominate raw detections.
+    score=(vals[4]*5.0+vals[5]*8.0+vals[3]*2.0+vals[2]*0.35+vals[1]*0.25)/attempts
+    con.execute("""INSERT INTO camera_yield
+      (camera_id,camera_title,camera_region,attempts,live_frames,detected_vehicles,
+       retained_crops,training_eligible_crops,plate_reads,score,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(camera_id) DO UPDATE SET
+       camera_title=excluded.camera_title,camera_region=excluded.camera_region,
+       attempts=excluded.attempts,live_frames=excluded.live_frames,
+       detected_vehicles=excluded.detected_vehicles,retained_crops=excluded.retained_crops,
+       training_eligible_crops=excluded.training_eligible_crops,plate_reads=excluded.plate_reads,
+       score=excluded.score,updated_at=excluded.updated_at""",
+      (cam["id"],cam["title"],cam["region"],*vals,score,now))
 
 def init_db(path:Path):
     con=sqlite3.connect(path)
@@ -186,20 +243,45 @@ class Models:
         return out
 
     def plate_read(self,vehicle:Image.Image):
-        r=self.plate.predict(source=np.asarray(vehicle),imgsz=384,conf=.18,iou=.55,verbose=False)[0]
-        if r.boxes is None or len(r.boxes)==0: return None
+        # Traffic cameras often show vehicles at only ~100-250 px wide. Run a bounded
+        # multi-scale recovery pass rather than assuming the native crop is sufficient.
+        variants=[("native",vehicle,384)]
+        if vehicle.width<360 or vehicle.height<180:
+            scale=min(3.0,max(1.5,480.0/max(1.0,vehicle.width)))
+            up=vehicle.resize((int(vehicle.width*scale),int(vehicle.height*scale)),Image.Resampling.LANCZOS)
+            variants.append(("upscaled",up,640))
+        if vehicle.width<220:
+            scale=min(4.0,max(2.0,520.0/max(1.0,vehicle.width)))
+            up2=vehicle.resize((int(vehicle.width*scale),int(vehicle.height*scale)),Image.Resampling.LANCZOS)
+            variants.append(("upscaled_hi",up2,768))
         cand=[]
-        W,H=vehicle.size
-        for box,cf in zip(r.boxes.xyxy.cpu().numpy(),r.boxes.conf.cpu().numpy()):
-            x1,y1,x2,y2=[float(x) for x in box]
-            w,h=x2-x1,y2-y1; ar=w/max(1,h)
-            if ar<1.15 or ar>8.5 or w*h<180: continue
-            pad=max(3,h*.18)
-            crop=vehicle.crop((max(0,int(x1-pad)),max(0,int(y1-pad)),min(W,int(x2+pad)),min(H,int(y2+pad))))
-            txt,oc=self.read_plate(crop)
-            if 3<=len(txt)<=10:
-                cand.append((txt,float(oc)*(.72+.28*float(cf)),float(cf),crop))
-        return max(cand,key=lambda x:x[1]) if cand else None
+        for mode,img,sz in variants:
+            r=self.plate.predict(source=np.asarray(img),imgsz=sz,conf=.10,iou=.50,verbose=False)[0]
+            if r.boxes is None or len(r.boxes)==0: continue
+            W,H=img.size
+            for box,cf in zip(r.boxes.xyxy.cpu().numpy(),r.boxes.conf.cpu().numpy()):
+                x1,y1,x2,y2=[float(x) for x in box]
+                w,h=x2-x1,y2-y1; ar=w/max(1,h)
+                if ar<1.05 or ar>9.0 or w*h<140: continue
+                pad=max(3,h*.20)
+                crop=img.crop((max(0,int(x1-pad)),max(0,int(y1-pad)),min(W,int(x2+pad)),min(H,int(y2+pad))))
+                txt,oc=self.read_plate(crop)
+                if 3<=len(txt)<=10:
+                    score=float(oc)*(.68+.32*float(cf))
+                    cand.append((txt,score,float(cf),crop,mode))
+        if not cand: return None
+        # Prefer agreement across scales; disagreement remains machine evidence only.
+        by={}
+        for x in cand:
+            by.setdefault(x[0],[]).append(x)
+        best=None
+        for txt,rows in by.items():
+            support=len(rows)
+            row=max(rows,key=lambda x:x[1])
+            score=min(1.0,row[1]+0.08*(support-1))
+            z=(txt,score,row[2],row[3],row[4],support)
+            if best is None or z[1]>best[1]: best=z
+        return best
 
 def recent_hashes(con,camera_id:str,limit=20):
     return [r[0] for r in con.execute(
@@ -232,14 +314,17 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
         im=Image.open(io.BytesIO(raw)).convert("RGB")
     except urllib.error.HTTPError as e:
         save_frame_record(con,cam,frame_id,when,e.code,error=str(e))
+        update_camera_yield(con,cam,0,0,0,0,0); con.commit()
         return {"camera":cam["title"],"status":"http_error","code":e.code}
     except Exception as e:
         save_frame_record(con,cam,frame_id,when,0,error=repr(e))
+        update_camera_yield(con,cam,0,0,0,0,0); con.commit()
         return {"camera":cam["title"],"status":"error","error":repr(e)}
 
     ph=ahash(im)
     if any(hamming(ph,x)<=2 for x in recent_hashes(con,cam["id"])):
         save_frame_record(con,cam,frame_id,when,200,im,raw,vehicle_count=0)
+        update_camera_yield(con,cam,1,0,0,0,0); con.commit()
         return {"camera":cam["title"],"status":"unchanged"}
 
     dets=models.detect_vehicles(im)
@@ -248,12 +333,13 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
         d=out_dir/"frames";d.mkdir(parents=True,exist_ok=True);im.save(d/(frame_id.replace(":","_")+".jpg"),quality=90)
 
     seen=recent_crop_hashes(con,cam["id"])
-    kept=0;plates=[]
+    kept=0;eligible_kept=0;plates=[]
     for name,conf,(x1,y1,x2,y2) in dets:
         W,H=im.size
+        q,eligible,flags,area_frac,edge_contact,crop_w,crop_h=crop_quality(im,(x1,y1,x2,y2),conf)
         pad=max(4,.04*max(x2-x1,y2-y1))
         vehicle=im.crop((max(0,int(x1-pad)),max(0,int(y1-pad)),min(W,int(x2+pad)),min(H,int(y2+pad))))
-        if vehicle.width<80 or vehicle.height<50: continue
+        if vehicle.width<70 or vehicle.height<42: continue
         ch=ahash(vehicle)
         if any(hamming(ch,x)<=4 for x in seen): continue
         seen.append(ch)
@@ -273,27 +359,34 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
         pr=models.plate_read(vehicle)
         ptxt=pconf=None
         if pr:
-            ptxt,pconf,pdet,plate_crop=pr
+            ptxt,pconf,pdet,plate_crop,plate_mode,plate_support=pr
             oid="plate:"+uuid.uuid4().hex
             con.execute("""INSERT INTO plate_observations
               (observation_id,media_id,plate_text,text_status,jurisdiction,
                detector_confidence,ocr_confidence,notes)
               VALUES(?,?,?,?,?,?,?,?)""",(
               oid,mid,ptxt,"machine_read","NSW",pdet,pconf,
-              "Live street-camera OCR. Not registry truth until independently verified."
+              "Live street-camera OCR; multi-scale="+plate_mode+
+              " support="+str(plate_support)+". Not registry truth until independently verified."
             ))
-            plates.append({"text":ptxt,"confidence":round(pconf,3)})
+            plates.append({"text":ptxt,"confidence":round(pconf,3),"mode":plate_mode,"support":plate_support})
         soid="street:"+uuid.uuid4().hex
         con.execute("""INSERT INTO street_vehicle_observations
           (street_observation_id,frame_id,media_id,detector_class,detector_confidence,
            bbox_x1,bbox_y1,bbox_x2,bbox_y2,crop_sha256,crop_perceptual_hash,
-           provisional_plate,provisional_plate_confidence,created_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
-          soid,frame_id,mid,name,conf,x1,y1,x2,y2,sha(vb),ch,ptxt,pconf,utc()
+           crop_width,crop_height,bbox_area_fraction,edge_contact,quality_score,
+           training_eligible,quality_flags_json,provisional_plate,provisional_plate_confidence,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+          soid,frame_id,mid,name,conf,x1,y1,x2,y2,sha(vb),ch,
+          crop_w,crop_h,area_frac,edge_contact,q,int(eligible),json.dumps(flags),
+          ptxt,pconf,utc()
         ))
         kept+=1
+        eligible_kept+=int(eligible)
+    update_camera_yield(con,cam,1,len(dets),kept,eligible_kept,len(plates))
     con.commit()
-    return {"camera":cam["title"],"status":"ok","detected":len(dets),"kept":kept,"plates":plates}
+    return {"camera":cam["title"],"status":"ok","detected":len(dets),"kept":kept,
+            "training_eligible":eligible_kept,"plates":plates}
 
 def main():
     ap=argparse.ArgumentParser()
@@ -315,6 +408,7 @@ def main():
         for c in cams: print(json.dumps(c,ensure_ascii=False))
         return
     con=init_db(args.db)
+    cams=rank_cameras(con,cams)
     models=Models(args.vehicle_model)
     args.out.mkdir(parents=True,exist_ok=True)
     cycle=0
