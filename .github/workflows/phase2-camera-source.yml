@@ -112,13 +112,15 @@ jobs:
           python - <<'PY'
           import json, os, sqlite3
           db="/tmp/street-live/live.sqlite"
-          out={"frames":0,"live_frames":0,"vehicles":0,"training_eligible":0,"plates":0,"errors":0}
+          out={"frames":0,"live_frames":0,"vehicles":0,"training_eligible":0,"plate_boxes":0,"ocr_nonempty":0,"plates":0,"errors":0}
           if os.path.exists(db):
               con=sqlite3.connect(db)
               out["frames"]=con.execute("select count(*) from camera_frames").fetchone()[0]
               out["live_frames"]=con.execute("select count(*) from camera_frames where http_status=200 and error is null").fetchone()[0]
               out["vehicles"]=con.execute("select count(*) from street_vehicle_observations").fetchone()[0]
               out["training_eligible"]=con.execute("select count(*) from street_vehicle_observations where training_eligible=1").fetchone()[0]
+              out["plate_boxes"]=con.execute("select coalesce(sum(plausible_plate_boxes),0) from plate_attempts").fetchone()[0]
+              out["ocr_nonempty"]=con.execute("select coalesce(sum(ocr_nonempty),0) from plate_attempts").fetchone()[0]
               out["plates"]=con.execute("select count(*) from plate_observations where text_status='machine_read'").fetchone()[0]
               out["errors"]=con.execute("select count(*) from camera_frames where error is not null or http_status!=200").fetchone()[0]
           print(json.dumps(out))
@@ -143,6 +145,8 @@ jobs:
           LIVE_FRAMES: ${{ steps.summary.outputs.live_frames }}
           VEHICLES: ${{ steps.summary.outputs.vehicles }}
           ELIGIBLE: ${{ steps.summary.outputs.training_eligible }}
+          PLATE_BOXES: ${{ steps.summary.outputs.plate_boxes }}
+          OCR_NONEMPTY: ${{ steps.summary.outputs.ocr_nonempty }}
           PLATES: ${{ steps.summary.outputs.plates }}
         run: |
           python - <<'PY'
@@ -150,10 +154,12 @@ jobs:
           live=int(os.environ.get("LIVE_FRAMES") or 0)
           vehicles=int(os.environ.get("VEHICLES") or 0)
           eligible=int(os.environ.get("ELIGIBLE") or 0)
+          plate_boxes=int(os.environ.get("PLATE_BOXES") or 0)
+          ocr_nonempty=int(os.environ.get("OCR_NONEMPTY") or 0)
           plates=int(os.environ.get("PLATES") or 0)
           ok=os.environ.get("INFER_OUTCOME")=="success" and live>=1 and vehicles>=1
           state="success" if ok else "failure"
-          desc=f"live={live} vehicles={vehicles} eligible={eligible} plates={plates}"
+          desc=f"live={live} vehicles={vehicles} boxes={plate_boxes} ocr={ocr_nonempty} plates={plates}"
           body=json.dumps({
             "state":state,
             "context":"phase2-camera-source/full-inference",
