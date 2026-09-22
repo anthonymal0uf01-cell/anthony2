@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "source_run": "35712435132",
+  "source_commit": "8adcef939165792eff90e45d8e1819ed955d624c",
+  "observed_at": "2026-09-22T09:49:39Z",
+  "notes": "Seed ranking from the first successful 30-frame live TfNSW inference run. Scores are priors only and are updated by later camera_yield observations.",
+  "cameras": [
+    {
+      "camera_id": "c9896623-85d2-4c75-9ae1-0c8d98e7fecc",
+      "title": "Campbell Rd and Euston Rd, St Peters",
+      "region": "SYD_MET",
+      "detected": 3,
+      "retained": 2,
+      "seed_score": 11
+    },
+    {
+      "camera_id": "8d523558-3c7f-4167-b47c-4c51a4c2d734",
+      "title": "City West Link (Lilyfield)",
+      "region": "SYD_MET",
+      "detected": 3,
+      "retained": 1,
+      "seed_score": 7
+    },
+    {
+      "camera_id": "087dafef-dd53-4eec-adfe-bc82c3ee9c1f",
+      "title": "Anzac Bridge (Westbound)",
+      "region": "SYD_MET",
+      "detected": 2,
+      "retained": 1,
+      "seed_score": 6
+    },
+    {
+      "camera_id": "d103f206-1abb-4056-bf3d-2da06e579be4",
+      "title": "Alison Road (Randwick)",
+      "region": "SYD_MET",
+      "detected": 1,
+      "retained": 1,
+      "seed_score": 5
+    },
+    {
+      "camera_id": "b3dfab91-ad6d-4306-8fce-332afd327107",
+      "title": "Eastern Distributor (Zetland)",
+      "region": "SYD_MET",
+      "detected": 5,
+      "retained": 0,
+      "seed_score": 5
+    },
+    {
+      "camera_id": "9ca3da77-7d9c-4820-a23a-df48d4712522",
+      "title": "Airport Drive (Mascot)",
+      "region": "SYD_MET",
+      "detected": 3,
+      "retained": 0,
+      "seed_score": 3
+    },
+    {
+      "camera_id": "97229e46-791c-4840-a71c-cad1e46d9eaf",
+      "title": "Anzac Parade (Moore Park)",
+      "region": "SYD_MET",
+      "detected": 2,
+      "retained": 0,
+      "seed_score": 2
+    },
+    {
+      "camera_id": "4638ff75-d834-4799-ae8c-e8fd1c573c20",
+      "title": "City Road (Newtown)",
+      "region": "SYD_MET",
+      "detected": 2,
+      "retained": 0,
+      "seed_score": 2
+    },
+    {
+      "camera_id": "c8c077c3-80d6-463c-8106-f089f8ca5e4d",
+      "title": "Epping Road (Macquarie Park)",
+      "region": "SYD_NORTH",
+      "detected": 2,
+      "retained": 0,
+      "seed_score": 2
+    },
+    {
+      "camera_id": "2e641353-0357-44c5-9540-4c1acbe1ce08",
+      "title": "Burnt Bridge Creek (Balgowlah)",
+      "region": "SYD_NORTH",
+      "detected": 1,
+      "retained": 0,
+      "seed_score": 1
+    },
+    {
+      "camera_id": "d6ab6fad-fd37-4964-ae91-6673ba55bfc7",
+      "title": "Carlingford Road (Epping)",
+      "region": "SYD_NORTH",
+      "detected": 1,
+      "retained": 0,
+      "seed_score": 1
+    }
+  ]
+}
