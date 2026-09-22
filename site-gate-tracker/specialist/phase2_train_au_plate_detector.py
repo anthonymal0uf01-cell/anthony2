@@ -26,12 +26,14 @@ def main():
     from ultralytics import YOLO
     args.out.mkdir(parents=True,exist_ok=True)
     m=YOLO(args.model)
-    # Stage 1: generic CC-BY localisation warm-up.
-    r1=m.train(data=str(args.hf/"data.yaml"),epochs=args.warmup_epochs,imgsz=args.warmup_imgsz,batch=args.warmup_batch,workers=2,
-        project=str(args.out),name="01_generic_warmup",plots=False,cache=False,verbose=False,
-        patience=max(2,args.warmup_epochs),cos_lr=True,close_mosaic=1)
-    p1=Path(r1.save_dir)/"weights"/"best.pt"
-    m=YOLO(str(p1))
+    # Optional generic warm-up. For focused improvement of an already-deployed AU
+    # checkpoint, pass --warmup-epochs 0 and --model <current checkpoint>.
+    if args.warmup_epochs > 0:
+        r1=m.train(data=str(args.hf/"data.yaml"),epochs=args.warmup_epochs,imgsz=args.warmup_imgsz,batch=args.warmup_batch,workers=2,
+            project=str(args.out),name="01_generic_warmup",plots=False,cache=False,verbose=False,
+            patience=max(2,args.warmup_epochs),cos_lr=True,close_mosaic=1)
+        p1=Path(r1.save_dir)/"weights"/"best.pt"
+        m=YOLO(str(p1))
     # Stage 2: Australian road-domain adaptation.
     r2=m.train(data=str(args.au/"data.yaml"),epochs=args.au_epochs,imgsz=args.au_imgsz,batch=args.au_batch,workers=2,
         project=str(args.out),name="02_au_domain",plots=False,cache=False,close_mosaic=3,
