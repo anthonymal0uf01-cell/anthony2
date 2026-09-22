@@ -268,6 +268,16 @@ class Models:
             scale=min(4.0,max(2.0,520.0/max(1.0,vehicle.width)))
             up2=vehicle.resize((int(vehicle.width*scale),int(vehicle.height*scale)),Image.Resampling.LANCZOS)
             variants.append(("upscaled_hi",up2,768,scale))
+        # Plate-focused ROI: front/rear plates are normally in the lower body band.
+        # Cropping before upscaling gives the plate detector more effective pixels.
+        vw,vh=vehicle.size
+        if vw>=70 and vh>=42:
+            y0=int(vh*.42); x0=int(vw*.06); x1=int(vw*.94)
+            roi=vehicle.crop((x0,y0,x1,vh))
+            if roi.width>=45 and roi.height>=20:
+                rscale=min(6.0,max(2.0,640.0/max(1.0,roi.width)))
+                roi_up=roi.resize((int(roi.width*rscale),int(roi.height*rscale)),Image.Resampling.LANCZOS)
+                variants.append(("lower_roi",roi_up,768,rscale))
         cand=[]
         for mode,img,sz,scale_factor in variants:
             diag["detector_variants"]+=1
