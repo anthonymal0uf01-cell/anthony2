@@ -8,6 +8,9 @@ on:
       - 'site-gate-tracker/specialist/public_plate_db/schema.sql'
       - '.github/workflows/phase2-camera-source.yml'
   workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
 jobs:
   camera-source:
     runs-on: ubuntu-latest
@@ -21,6 +24,8 @@ jobs:
       - name: Syntax-check live collector
         run: python -m py_compile site-gate-tracker/specialist/public_plate_db/street_camera_collector.py
       - name: Verify current TfNSW GeoJSON and JPEG frames
+        id: live
+        continue-on-error: true
         run: |
           python - <<'PY'
           import io,json,urllib.request
@@ -48,3 +53,33 @@ jobs:
           print(json.dumps({"camera_metadata":len(urls),"decoded_frames":len(ok),"examples":ok},indent=2))
           if len(urls)<50 or len(ok)<5:raise SystemExit("TfNSW camera source gate failed")
           PY
+
+      - name: Publish readable camera-source status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          LIVE_OUTCOME: ${{ steps.live.outcome }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          state="success" if os.environ["LIVE_OUTCOME"]=="success" else "failure"
+          body=json.dumps({
+            "state":state,
+            "context":"phase2-camera-source/live-feed",
+            "description":"TfNSW live camera source gate "+("passed" if state=="success" else "failed")
+          }).encode()
+          url="https://api.github.com/repos/"+os.environ["REPO"]+"/statuses/"+os.environ["SHA"]
+          req=urllib.request.Request(url,data=body,method="POST",headers={
+            "Authorization":"Bearer "+os.environ["GH_TOKEN"],
+            "Accept":"application/vnd.github+json",
+            "Content-Type":"application/json",
+            "User-Agent":"anthony2-camera-ci"
+          })
+          with urllib.request.urlopen(req,timeout=20) as rr:
+            print(rr.status, rr.read().decode())
+          PY
+      - name: Fail job if live camera gate failed
+        if: steps.live.outcome != 'success'
+        run: exit 1
