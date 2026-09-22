@@ -152,3 +152,48 @@ CREATE INDEX IF NOT EXISTS idx_resolution_plate_state ON vehicle_resolutions(pla
 CREATE INDEX IF NOT EXISTS idx_resolution_vin ON vehicle_resolutions(vin);
 CREATE INDEX IF NOT EXISTS idx_rav_make_model ON rav_records(vehicle_make,vehicle_model);
 CREATE INDEX IF NOT EXISTS idx_training_vin ON training_labels(vin);
+
+
+CREATE TABLE IF NOT EXISTS camera_frames (
+  frame_id TEXT PRIMARY KEY,
+  camera_id TEXT NOT NULL,
+  camera_title TEXT,
+  camera_view TEXT,
+  camera_region TEXT,
+  direction TEXT,
+  longitude REAL,
+  latitude REAL,
+  image_url TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  http_status INTEGER,
+  sha256 TEXT,
+  perceptual_hash TEXT,
+  width INTEGER,
+  height INTEGER,
+  vehicle_count INTEGER DEFAULT 0,
+  error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS street_vehicle_observations (
+  street_observation_id TEXT PRIMARY KEY,
+  frame_id TEXT NOT NULL REFERENCES camera_frames(frame_id),
+  media_id TEXT REFERENCES media(media_id),
+  detector_class TEXT,
+  detector_confidence REAL,
+  bbox_x1 REAL,
+  bbox_y1 REAL,
+  bbox_x2 REAL,
+  bbox_y2 REAL,
+  crop_sha256 TEXT,
+  crop_perceptual_hash TEXT,
+  provisional_plate TEXT,
+  provisional_plate_confidence REAL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_frames_camera_time
+  ON camera_frames(camera_id,fetched_at);
+CREATE INDEX IF NOT EXISTS idx_street_obs_frame
+  ON street_vehicle_observations(frame_id);
+CREATE INDEX IF NOT EXISTS idx_street_obs_plate
+  ON street_vehicle_observations(provisional_plate);
