@@ -255,6 +255,8 @@ class Models:
         return out
 
     def plate_read(self,vehicle:Image.Image):
+        diag={"detector_variants":0,"detector_boxes":0,"plausible_plate_boxes":0,
+              "best_detector_confidence":0.0,"ocr_attempts":0,"ocr_nonempty":0}
         # Traffic cameras often show vehicles at only ~100-250 px wide. Run a bounded
         # multi-scale recovery pass rather than assuming the native crop is sufficient.
         variants=[("native",vehicle,384,1.0)]
@@ -268,24 +270,37 @@ class Models:
             variants.append(("upscaled_hi",up2,768,scale))
         cand=[]
         for mode,img,sz,scale_factor in variants:
-            r=self.plate.predict(source=np.asarray(img),imgsz=sz,conf=.10,iou=.50,verbose=False)[0]
+            diag["detector_variants"]+=1
+            r=self.plate.predict(source=np.asarray(img),imgsz=sz,conf=.08,iou=.50,verbose=False)[0]
             if r.boxes is None or len(r.boxes)==0: continue
+            diag["detector_boxes"]+=int(len(r.boxes))
             W,H=img.size
             for box,cf in zip(r.boxes.xyxy.cpu().numpy(),r.boxes.conf.cpu().numpy()):
                 x1,y1,x2,y2=[float(x) for x in box]
                 w,h=x2-x1,y2-y1; ar=w/max(1,h)
-                if ar<1.05 or ar>9.0 or w*h<140: continue
+                if ar<1.05 or ar>9.0 or w*h<120: continue
+                diag["plausible_plate_boxes"]+=1
+                diag["best_detector_confidence"]=max(diag["best_detector_confidence"],float(cf))
                 pad=max(3,h*.20)
                 crop=img.crop((max(0,int(x1-pad)),max(0,int(y1-pad)),min(W,int(x2+pad)),min(H,int(y2+pad))))
                 native_plate_width=w/max(1e-6,scale_factor)
                 use_tiny=native_plate_width<=64
+                diag["ocr_attempts"]+=1
                 txt,oc=self.read_plate(crop,tiny=use_tiny)
+                if txt: diag["ocr_nonempty"]+=1
                 if 3<=len(txt)<=10:
                     score=float(oc)*(.68+.32*float(cf))
                     cand.append((txt,score,float(cf),crop,mode,
                                  "tiny" if use_tiny and self.ocr_tiny is not None else "general",
                                  native_plate_width))
-        if not cand: return None
+        if not cand:
+            if diag["plausible_plate_boxes"]==0:
+                diag["failure_stage"]="detector"
+            elif diag["ocr_nonempty"]==0:
+                diag["failure_stage"]="ocr_empty"
+            else:
+                diag["failure_stage"]="ocr_rejected"
+            return None,diag
         # Prefer agreement across scales; disagreement remains machine evidence only.
         by={}
         for x in cand:
@@ -297,7 +312,13 @@ class Models:
             score=min(1.0,row[1]+0.08*(support-1))
             z=(txt,score,row[2],row[3],row[4],support,row[5],row[6])
             if best is None or z[1]>best[1]: best=z
-        return best
+        diag["failure_stage"]="accepted"
+        diag["accepted"]=1
+        diag["accepted_text"]=best[0]
+        diag["accepted_confidence"]=best[1]
+        diag["accepted_branch"]=best[6]
+        diag["accepted_native_plate_width"]=best[7]
+        return best,diag
 
 def recent_hashes(con,camera_id:str,limit=20):
     return [r[0] for r in con.execute(
@@ -372,7 +393,7 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
           mid,"tfnsw_live_cameras",cam["href"],cam["href"],str(path),"NSW",
           "Creative Commons Attribution",sha(vb),ch,when,utc(),json.dumps(meta)
         ))
-        pr=models.plate_read(vehicle)
+        pr,pdiag=models.plate_read(vehicle)
         ptxt=pconf=None
         if pr:
             ptxt,pconf,pdet,plate_crop,plate_mode,plate_support,ocr_branch,native_plate_width=pr
@@ -390,6 +411,21 @@ def process_camera(con,models,cam,out_dir:Path,keep_frames=False):
             plates.append({"text":ptxt,"confidence":round(pconf,3),"mode":plate_mode,
                            "support":plate_support,"ocr_branch":ocr_branch,
                            "native_plate_width":round(native_plate_width,1)})
+        con.execute("""INSERT INTO plate_attempts
+          (attempt_id,media_id,attempted_at,detector_variants,detector_boxes,
+           plausible_plate_boxes,best_detector_confidence,ocr_attempts,ocr_nonempty,
+           accepted,accepted_text,accepted_confidence,accepted_branch,
+           accepted_native_plate_width,failure_stage,diagnostics_json)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",(
+          "attempt:"+uuid.uuid4().hex,mid,utc(),
+          pdiag.get("detector_variants",0),pdiag.get("detector_boxes",0),
+          pdiag.get("plausible_plate_boxes",0),pdiag.get("best_detector_confidence"),
+          pdiag.get("ocr_attempts",0),pdiag.get("ocr_nonempty",0),
+          int(bool(pdiag.get("accepted"))),pdiag.get("accepted_text"),
+          pdiag.get("accepted_confidence"),pdiag.get("accepted_branch"),
+          pdiag.get("accepted_native_plate_width"),pdiag.get("failure_stage"),
+          json.dumps(pdiag)
+        ))
         soid="street:"+uuid.uuid4().hex
         con.execute("""INSERT INTO street_vehicle_observations
           (street_observation_id,frame_id,media_id,detector_class,detector_confidence,
