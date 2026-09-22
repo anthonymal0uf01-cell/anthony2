@@ -34,19 +34,19 @@ jobs:
           python site-gate-tracker/specialist/build_au_camera_plate_composites.py --out /tmp/au_camera --count 6000 --seed 260919 --ocr-min-width 20 --ocr-min-height 6 --tiny-max-width 64 --tiny-focus-ratio 0.80 --require-ocr
       - name: Train and validate checkpoint
         run: |
-          python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 0 --batch 96 --min-exact 0.88 --min-hard-slice 0.70 --adapt-dataset /tmp/au_camera/ocr --adapt-epochs 4 --adapt-synth-ratio 1.25 --adapt-lr-mult 0.04 --min-adapt-exact 0.65 --init-checkpoint site-gate-tracker/specialist/weights/au_ocr_seed.pt --baseline site-gate-tracker/specialist/weights/au_ocr_seed.pt --min-tiny-exact 0.40 --min-tiny-improvement 0.005 --out /tmp/phase2_weights
+          python site-gate-tracker/specialist/phase2_train_au_ocr.py /tmp/au_synth --epochs 0 --batch 96 --min-exact 0.88 --min-hard-slice 0.70 --adapt-dataset /tmp/au_camera/ocr --adapt-epochs 8 --adapt-synth-ratio 1.5 --adapt-lr-mult 0.04 --min-adapt-exact 0.20 --init-checkpoint site-gate-tracker/specialist/weights/au_ocr_seed.pt --baseline site-gate-tracker/specialist/weights/au_ocr_seed.pt --min-tiny-exact 0.12 --min-tiny-improvement 0.10 --specialist-mode --specialist-min-general-exact 0.82 --out /tmp/phase2_weights
       - name: Publish real trained weights
         run: |
           mkdir -p site-gate-tracker/specialist/weights
-          cp /tmp/phase2_weights/au_ocr_seed.pt site-gate-tracker/specialist/weights/
-          test -f /tmp/phase2_weights/au_ocr_seed.onnx && cp /tmp/phase2_weights/au_ocr_seed.onnx site-gate-tracker/specialist/weights/ || true
-          cp /tmp/phase2_weights/metrics.json site-gate-tracker/specialist/weights/au_ocr_seed.metrics.json
+          cp /tmp/phase2_weights/au_ocr_tiny.pt site-gate-tracker/specialist/weights/
+          test -f /tmp/phase2_weights/au_ocr_tiny.onnx && cp /tmp/phase2_weights/au_ocr_tiny.onnx site-gate-tracker/specialist/weights/ || true
+          cp /tmp/phase2_weights/au_ocr_tiny.metrics.json site-gate-tracker/specialist/weights/
           git config user.name github-actions
           git config user.email github-actions@github.com
           git pull --rebase origin main
           git add site-gate-tracker/specialist/weights/
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Train Phase 2 Australian OCR seed"
+          git commit -m "Train tiny-plate Australian OCR specialist"
           git push
       - uses: actions/upload-artifact@v4
         if: always()
